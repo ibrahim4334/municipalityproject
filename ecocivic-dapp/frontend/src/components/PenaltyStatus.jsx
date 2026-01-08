@@ -1,0 +1,1 @@
+// PenaltyStatus.jsx dosyasi
