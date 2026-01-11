@@ -21,7 +21,7 @@ API_PORT = int(os.getenv("API_PORT", 8000))
 # ==============================
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://ecocivic:password@localhost:5432/ecocivic",
+    "mysql+pymysql://root:password@localhost:3306/ecocivic?charset=utf8mb4",
 )
 
 # ==============================

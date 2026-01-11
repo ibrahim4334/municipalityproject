@@ -22,10 +22,12 @@ Bu dokümantasyon, EcoCivic DApp uygulamasını yerel ortamda ve production'da d
 
 - **Node.js** 18+ ve npm/yarn
 - **Python** 3.8+
-- **PostgreSQL** 12+
+- **MySQL** 8.0+ (veya MySQL Workbench ile yönetim)
 - **Git**
 - **MetaMask** browser extension (test için)
 - **Tesseract OCR** (backend için - sistem seviyesinde kurulum gerekebilir)
+
+**Detaylı kurulum için:** `LOCAL_SETUP.md` dosyasına bakın.
 
 ### Windows için Tesseract Kurulumu
 
@@ -48,16 +50,25 @@ git clone <repository-url>
 cd clean-repo/ecocivic-dapp
 ```
 
-### Adım 2: PostgreSQL Veritabanı Kurulumu
+### Adım 2: MySQL Veritabanı Kurulumu
 
-1. PostgreSQL'i kurun ve başlatın
-2. Veritabanı oluşturun:
+1. MySQL Server'ı kurun ve başlatın (XAMPP/WAMP kullanıyorsanız Control Panel'den başlatın)
+2. MySQL Workbench ile veya komut satırı ile veritabanı oluşturun:
 
+**MySQL Workbench ile (Önerilen):**
 ```sql
-CREATE DATABASE ecocivic;
-CREATE USER ecocivic WITH PASSWORD 'your_password_here';
-GRANT ALL PRIVILEGES ON DATABASE ecocivic TO ecocivic;
+CREATE DATABASE IF NOT EXISTS ecocivic CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'ecocivic'@'localhost' IDENTIFIED BY 'your_password_here';
+GRANT ALL PRIVILEGES ON ecocivic.* TO 'ecocivic'@'localhost';
+FLUSH PRIVILEGES;
 ```
+
+**Veya root kullanıcısı ile:**
+```sql
+CREATE DATABASE IF NOT EXISTS ecocivic CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+**Not:** Detaylı kurulum için `LOCAL_SETUP.md` dosyasına bakın.
 
 ---
 
@@ -114,7 +125,7 @@ API_HOST=0.0.0.0
 API_PORT=8000
 
 # DATABASE CONFIG
-DATABASE_URL=postgresql://ecocivic:your_password@localhost:5432/ecocivic
+DATABASE_URL=mysql+pymysql://root:password@localhost:3306/ecocivic?charset=utf8mb4
 
 # AI / ML CONFIG
 AI_MODEL_PROVIDER=openai
@@ -433,7 +444,7 @@ sudo systemctl reload nginx
 DEBUG=false
 API_CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 JWT_SECRET_KEY=<güçlü_32_karakter_secret>
-DATABASE_URL=postgresql://user:password@db_host:5432/ecocivic
+DATABASE_URL=mysql+pymysql://user:password@db_host:3306/ecocivic?charset=utf8mb4
 # ... diğer production değerleri
 ```
 
@@ -459,8 +470,9 @@ Error: could not connect to server
 ```
 
 **Çözüm:**
-- PostgreSQL servisinin çalıştığından emin olun
+- MySQL servisinin çalıştığından emin olun (XAMPP/WAMP Control Panel'den kontrol edin)
 - `DATABASE_URL` environment variable'ının doğru olduğundan emin olun
+- MySQL Workbench'te bağlantıyı test edin
 - Firewall kurallarını kontrol edin
 
 #### OCR Hatası

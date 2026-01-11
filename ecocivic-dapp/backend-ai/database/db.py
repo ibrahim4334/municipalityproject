@@ -1,6 +1,6 @@
 """
 Database Connection Module
-PostgreSQL database bağlantı yönetimi
+MySQL database bağlantı yönetimi
 """
 import os
 from sqlalchemy import create_engine
