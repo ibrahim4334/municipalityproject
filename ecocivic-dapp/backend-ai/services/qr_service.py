@@ -8,8 +8,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict
 import os
 
-QR_TOKEN_EXPIRY_HOURS = int(os.getenv("QR_TOKEN_EXPIRY_HOURS", 3))
-QR_SECRET_KEY = os.getenv("QR_SECRET_KEY", secrets.token_hex(32))
+from config import QR_TOKEN_EXPIRY_HOURS, QR_SECRET_KEY
 
 
 def generate_qr_token(material_type: str, amount: float, wallet_address: str) -> Dict[str, any]:

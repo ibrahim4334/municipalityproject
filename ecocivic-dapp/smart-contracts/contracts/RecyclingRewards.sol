@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./BELTToken.sol";
 
-contract RecyclingRewards is Ownable {
+contract RecyclingRewards is AccessControl {
+
+    bytes32 public constant SERVICE_OPERATOR_ROLE = keccak256("SERVICE_OPERATOR_ROLE");
 
     BELTToken public beltToken;
 
@@ -40,9 +42,12 @@ contract RecyclingRewards is Ownable {
         _;
     }
 
-    constructor(address _beltToken) Ownable(msg.sender) {
+    constructor(address _beltToken) {
         require(_beltToken != address(0), "Invalid BELT token address");
         beltToken = BELTToken(_beltToken);
+
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(SERVICE_OPERATOR_ROLE, msg.sender); // Deployer also operator for testing
 
         // Katsayılar (10 = 1.0)
         rewardMultiplier[MaterialType.Glass] = 10;
@@ -59,7 +64,7 @@ contract RecyclingRewards is Ownable {
         MaterialType material,
         uint256 baseAmount,
         string calldata qrHash
-    ) external onlyOwner whenNotPaused validAddress(user) {
+    ) external onlyRole(SERVICE_OPERATOR_ROLE) whenNotPaused validAddress(user) {
         require(baseAmount > 0, "Base amount must be > 0");
         require(baseAmount <= MAX_BASE_AMOUNT, "Base amount exceeds maximum");
         require(bytes(qrHash).length > 0, "QR hash cannot be empty");
@@ -89,7 +94,7 @@ contract RecyclingRewards is Ownable {
      */
     function setRewardMultiplier(MaterialType material, uint256 multiplier) 
         external 
-        onlyOwner 
+        onlyRole(DEFAULT_ADMIN_ROLE) 
     {
         require(multiplier > 0, "Multiplier must be > 0");
         require(multiplier <= 100, "Multiplier too high"); // Max 10x
@@ -101,7 +106,7 @@ contract RecyclingRewards is Ownable {
     /**
      * @notice Contract'ı durdur (acil durumlar için)
      */
-    function pause() external onlyOwner {
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(!paused, "Already paused");
         paused = true;
         emit Paused(msg.sender);
@@ -110,7 +115,7 @@ contract RecyclingRewards is Ownable {
     /**
      * @notice Contract'ı devam ettir
      */
-    function unpause() external onlyOwner {
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(paused, "Not paused");
         paused = false;
         emit Unpaused(msg.sender);

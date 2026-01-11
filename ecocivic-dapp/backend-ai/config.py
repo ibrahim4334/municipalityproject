@@ -51,6 +51,10 @@ BACKEND_WALLET_PRIVATE_KEY = os.getenv("BACKEND_WALLET_PRIVATE_KEY")
 # QR TOKEN CONFIG
 # ==============================
 QR_TOKEN_EXPIRY_HOURS = int(os.getenv("QR_TOKEN_EXPIRY_HOURS", 3))
+QR_SECRET_KEY = os.getenv("QR_SECRET_KEY")
+
+if not QR_SECRET_KEY:
+    raise RuntimeError("QR_SECRET_KEY environment variable is required security critical configuration.")
 
 # ==============================
 # SECURITY

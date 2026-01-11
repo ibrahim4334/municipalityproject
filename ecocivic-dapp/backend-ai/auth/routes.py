@@ -8,7 +8,8 @@ from database.models import User, UserRole
 from auth.jwt_utils import create_token
 from datetime import datetime
 from auth.middleware import require_auth, get_token_from_header, get_wallet_from_token
-from app import _error_response, _validate_wallet_address
+from auth.middleware import require_auth, get_token_from_header, get_wallet_from_token
+from utils import error_response as _error_response, validate_wallet_address as _validate_wallet_address, normalize_wallet_address as _normalize_wallet_address
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -31,7 +32,7 @@ def login():
         if not _validate_wallet_address(wallet_address):
             return _error_response("Invalid wallet address format", 400)
         
-        wallet_address = wallet_address.lower()
+        wallet_address = _normalize_wallet_address(wallet_address)
         
         # Kullanıcıyı bul veya oluştur (Citizen olarak)
         with get_db() as db:

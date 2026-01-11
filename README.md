@@ -500,6 +500,17 @@ EcoCivic DApp üç ana katmandan oluşur:
 2. **Backend Layer**: Flask API servisi ve AI/ML işlemleri
 3. **Blockchain Layer**: Smart contract'lar ve token ekonomisi
 
+### 🏗️ Hibrit Mimari Yaklaşımı
+
+EcoCivic, verimlilik ve güveni dengelemek için hibrit bir veritabanı yapısı kullanır:
+
+| Katman | Teknoloji | Kullanım Alanı | Neden? |
+|--------|-----------|----------------|--------|
+| **Veri Yönetimi** | **MySQL (PostgreSQL)** | Kullanıcı Profilleri, Roller, Sayaç Geçmişi, QR Logları | Yüksek hacimli veri, hızlı sorgulama, kişisel veri gizliliği (KVKK/GDPR), maliyet etkinliği. |
+| **Güven Katmanı** | **Blockchain (Polygon)** | Ödül Dağıtımı (BELT), Ceza Kayıtları, Şeffaflık | Değiştirilemez (immutable) kayıtlar, güven gerektirmeyen değer transferi, halka açık denetim. |
+
+Bu yaklaşım sayesinde belediyeler ağır verileri (resimler, loglar) blockchain'e yükleyerek gas ücreti ödemez, ancak ödül ve ceza gibi kritik işlemlerin şeffaflığından ödün vermez.
+
 Detaylı mimari dokümantasyon için `docs/architecture.md` dosyasına bakın.
 
 ---

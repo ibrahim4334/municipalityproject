@@ -2,9 +2,12 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 
-contract BELTToken is ERC20, Ownable {
+contract BELTToken is ERC20, AccessControl {
+
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
 
     uint256 public constant MAX_SUPPLY = 1_000_000_000 * 10**18; // 1 billion BELT max
     bool public paused;
@@ -24,14 +27,18 @@ contract BELTToken is ERC20, Ownable {
         _;
     }
 
-    constructor() ERC20("Belediye Eco Token", "BELT") Ownable(msg.sender) {}
+    constructor() ERC20("Belediye Eco Token", "BELT") {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(MINTER_ROLE, msg.sender);
+        _grantRole(SLASHER_ROLE, msg.sender);
+    }
 
     /**
-     * @notice Sadece belediye (owner) yeni BELT basabilir
+     * @notice Sadece MINTER_ROLE yetkisi olanlar (örn. RecyclingRewards kontratı) basabilir
      */
     function mint(address to, uint256 amount) 
         external 
-        onlyOwner 
+        onlyRole(MINTER_ROLE) 
         whenNotPaused
         validAddress(to)
     {
@@ -54,11 +61,11 @@ contract BELTToken is ERC20, Ownable {
     }
 
     /**
-     * @notice Owner tarafından token yakma (slashing için)
+     * @notice SLASHER_ROLE tarafından token yakma (slashing için)
      */
     function burnFrom(address account, uint256 amount) 
         external 
-        onlyOwner 
+        onlyRole(SLASHER_ROLE)
         whenNotPaused
         validAddress(account)
     {
@@ -72,7 +79,7 @@ contract BELTToken is ERC20, Ownable {
     /**
      * @notice Contract'ı durdur (acil durumlar için)
      */
-    function pause() external onlyOwner {
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(!paused, "Already paused");
         paused = true;
         emit Paused(msg.sender);
@@ -81,7 +88,7 @@ contract BELTToken is ERC20, Ownable {
     /**
      * @notice Contract'ı devam ettir
      */
-    function unpause() external onlyOwner {
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(paused, "Not paused");
         paused = false;
         emit Unpaused(msg.sender);
