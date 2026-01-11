@@ -7,6 +7,19 @@ export const useWallet = () => useContext(WalletContext);
 
 const EXPECTED_CHAIN_ID = import.meta.env.VITE_CHAIN_ID || "80001"; // Mumbai testnet
 
+// Polygon Mumbai Network Configuration
+const POLYGON_MUMBAI_NETWORK = {
+    chainId: '0x13881', // 80001 in hex
+    chainName: 'Polygon Mumbai',
+    nativeCurrency: {
+        name: 'MATIC',
+        symbol: 'MATIC',
+        decimals: 18,
+    },
+    rpcUrls: ['https://rpc-mumbai.maticvigil.com'],
+    blockExplorerUrls: ['https://mumbai.polygonscan.com'],
+};
+
 export const WalletProvider = ({ children }) => {
     const [account, setAccount] = useState(null);
     const [balance, setBalance] = useState('0');
@@ -14,6 +27,7 @@ export const WalletProvider = ({ children }) => {
     const [signer, setSigner] = useState(null);
     const [chainId, setChainId] = useState(null);
     const [isConnecting, setIsConnecting] = useState(false);
+    const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
     const [error, setError] = useState(null);
 
     const updateBalance = async (address, prov) => {
@@ -37,7 +51,7 @@ export const WalletProvider = ({ children }) => {
             if (currentChainId !== EXPECTED_CHAIN_ID) {
                 return {
                     isValid: false,
-                    message: `Please switch to the correct network (Chain ID: ${EXPECTED_CHAIN_ID})`
+                    message: `Please switch to Polygon Mumbai network (Chain ID: ${EXPECTED_CHAIN_ID})`
                 };
             }
             return { isValid: true };
@@ -46,6 +60,55 @@ export const WalletProvider = ({ children }) => {
                 isValid: false,
                 message: `Network check failed: ${err.message}`
             };
+        }
+    };
+
+    const switchNetwork = async () => {
+        if (!window.ethereum) {
+            setError("MetaMask not found. Please install MetaMask extension.");
+            return false;
+        }
+
+        setIsSwitchingNetwork(true);
+        setError(null);
+
+        try {
+            // Try to switch to the network
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: POLYGON_MUMBAI_NETWORK.chainId }],
+                });
+                setIsSwitchingNetwork(false);
+                return true;
+            } catch (switchError) {
+                // This error code indicates that the chain has not been added to MetaMask
+                if (switchError.code === 4902) {
+                    // Try to add the network
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [POLYGON_MUMBAI_NETWORK],
+                        });
+                        setIsSwitchingNetwork(false);
+                        return true;
+                    } catch (addError) {
+                        setError("Failed to add network to MetaMask");
+                        setIsSwitchingNetwork(false);
+                        return false;
+                    }
+                } else if (switchError.code === 4001) {
+                    setError("User rejected network switch");
+                    setIsSwitchingNetwork(false);
+                    return false;
+                }
+                throw switchError;
+            }
+        } catch (error) {
+            console.error("Error switching network:", error);
+            setError(`Failed to switch network: ${error.message}`);
+            setIsSwitchingNetwork(false);
+            return false;
         }
     };
 
@@ -70,9 +133,20 @@ export const WalletProvider = ({ children }) => {
             // Check network
             const networkCheck = await checkNetwork(_provider);
             if (!networkCheck.isValid) {
-                setError(networkCheck.message);
-                setIsConnecting(false);
-                return false;
+                // Try to switch network automatically
+                const switched = await switchNetwork();
+                if (!switched) {
+                    setError(networkCheck.message + ". Please switch manually or try again.");
+                    setIsConnecting(false);
+                    return false;
+                }
+                // After switching, check again
+                const networkCheckAfter = await checkNetwork(_provider);
+                if (!networkCheckAfter.isValid) {
+                    setError(networkCheckAfter.message);
+                    setIsConnecting(false);
+                    return false;
+                }
             }
 
             const _signer = await _provider.getSigner();
@@ -104,7 +178,7 @@ export const WalletProvider = ({ children }) => {
 
     // Listen for account changes
     useEffect(() => {
-        if (window.ethereum) {
+        if (window.ethereum && provider) {
             const handleAccountsChanged = async (accounts) => {
                 if (accounts.length === 0) {
                     // User disconnected
@@ -112,31 +186,45 @@ export const WalletProvider = ({ children }) => {
                     setProvider(null);
                     setSigner(null);
                     setBalance('0');
+                    setChainId(null);
                 } else {
                     // Account switched
                     setAccount(accounts[0]);
-                    if (provider) {
-                        const _signer = await provider.getSigner();
-                        setSigner(_signer);
-                        await updateBalance(accounts[0], provider);
-                    }
+                    const _signer = await provider.getSigner();
+                    setSigner(_signer);
+                    await updateBalance(accounts[0], provider);
                 }
+                setError(null);
             };
 
-            const handleChainChanged = async (chainId) => {
-                // Reload page on chain change to reset state
-                window.location.reload();
+            const handleChainChanged = async (chainIdHex) => {
+                // Chain changed, update state
+                const _provider = new ethers.BrowserProvider(window.ethereum);
+                const networkCheck = await checkNetwork(_provider);
+                
+                if (networkCheck.isValid && account) {
+                    // Network is correct, reconnect
+                    const _signer = await _provider.getSigner();
+                    setProvider(_provider);
+                    setSigner(_signer);
+                    await updateBalance(account, _provider);
+                } else {
+                    // Network is wrong, disconnect
+                    setError("Wrong network detected. Please switch to Polygon Mumbai.");
+                }
             };
 
             window.ethereum.on('accountsChanged', handleAccountsChanged);
             window.ethereum.on('chainChanged', handleChainChanged);
 
             return () => {
-                window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-                window.ethereum.removeListener('chainChanged', handleChainChanged);
+                if (window.ethereum) {
+                    window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+                    window.ethereum.removeListener('chainChanged', handleChainChanged);
+                }
             };
         }
-    }, [provider]);
+    }, [provider, account]);
 
     // Try to reconnect on mount if previously connected
     useEffect(() => {
@@ -152,6 +240,7 @@ export const WalletProvider = ({ children }) => {
                             setAccount(accounts[0]);
                             setProvider(_provider);
                             setSigner(_signer);
+                            setChainId(EXPECTED_CHAIN_ID);
                             await updateBalance(accounts[0], _provider);
                         }
                     }
@@ -172,8 +261,11 @@ export const WalletProvider = ({ children }) => {
             signer, 
             chainId,
             isConnecting,
+            isSwitchingNetwork,
             error,
-            connectWallet 
+            connectWallet,
+            switchNetwork,
+            isCorrectNetwork: chainId === EXPECTED_CHAIN_ID
         }}>
             {children}
         </WalletContext.Provider>
