@@ -1,29 +1,56 @@
 # Dependencies
 node_modules/
 venv/
+env/
+ENV/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
 
 # Environment variables
 .env
 .env.local
 .env.*.local
+# .env.example files should be committed (they are templates)
 
 # Build
 dist/
 build/
 coverage/
+*.egg-info/
 
 # IDEs
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
 
 # Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Uploads (backend)
+uploads/
+*.jpg
+*.jpeg
+*.png
+*.gif
+
+# Hardhat
+cache/
+artifacts/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/

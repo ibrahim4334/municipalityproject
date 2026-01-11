@@ -58,6 +58,9 @@ QR_TOKEN_EXPIRY_HOURS = int(os.getenv("QR_TOKEN_EXPIRY_HOURS", 3))
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret-key")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", 60))
 
+# CORS Configuration
+API_CORS_ORIGINS = os.getenv("API_CORS_ORIGINS", "*")  # Comma-separated list in production
+
 # Üretim ortamında zayıf default secret ile ayağa kalkmasını engelle
 if not DEBUG and JWT_SECRET_KEY == "super-secret-key":
     raise RuntimeError(
