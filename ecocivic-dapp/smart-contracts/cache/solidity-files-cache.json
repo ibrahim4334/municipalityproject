@@ -380,8 +380,8 @@
       ]
     },
     "C:\\Users\\ASUS\\Desktop\\municipality project files\\clean-repo\\ecocivic-dapp\\smart-contracts\\contracts\\WaterBilling.sol": {
-      "lastModificationDate": 1768128894754,
-      "contentHash": "b698f71a09e7b934a0530c5f0a48103f",
+      "lastModificationDate": 1768425021849,
+      "contentHash": "21c985dc11747eb65a926a632976e0f6",
       "sourceName": "contracts/WaterBilling.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -409,6 +409,7 @@
       },
       "imports": [
         "@openzeppelin/contracts/access/AccessControl.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
         "./BELTToken.sol"
       ],
       "versionPragmas": [
@@ -685,8 +686,8 @@
       ]
     },
     "C:\\Users\\ASUS\\Desktop\\municipality project files\\clean-repo\\ecocivic-dapp\\smart-contracts\\contracts\\RecyclingRewards.sol": {
-      "lastModificationDate": 1768128127232,
-      "contentHash": "a7416334d3fa10dd985ef931a7b512cf",
+      "lastModificationDate": 1768426106231,
+      "contentHash": "3d990f6b9accaf2d817991bb17b15374",
       "sourceName": "contracts/RecyclingRewards.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -714,6 +715,7 @@
       },
       "imports": [
         "@openzeppelin/contracts/access/AccessControl.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
         "./BELTToken.sol"
       ],
       "versionPragmas": [
@@ -786,6 +788,87 @@
       "imports": [],
       "versionPragmas": [],
       "artifacts": []
+    },
+    "C:\\Users\\ASUS\\Desktop\\municipality project files\\clean-repo\\ecocivic-dapp\\smart-contracts\\contracts\\TokenStaking.sol": {
+      "lastModificationDate": 1768423777765,
+      "contentHash": "f7e7a4aed957da24e8810708301ca294",
+      "sourceName": "contracts/TokenStaking.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/AccessControl.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+        "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+        "./BELTToken.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "TokenStaking"
+      ]
+    },
+    "C:\\Users\\ASUS\\Desktop\\municipality project files\\clean-repo\\ecocivic-dapp\\smart-contracts\\contracts\\WaterBillingFraudManager.sol": {
+      "lastModificationDate": 1768426059287,
+      "contentHash": "0ccd4ed31149a65349b3ac849a583b8a",
+      "sourceName": "contracts/WaterBillingFraudManager.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/AccessControl.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+        "./EcoCivicDeposit.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "WaterBillingFraudManager"
+      ]
     }
   }
 }

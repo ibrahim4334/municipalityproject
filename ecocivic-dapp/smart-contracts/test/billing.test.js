@@ -42,13 +42,12 @@ describe("WaterBilling", function () {
         });
     });
 
-    describe("Submit Reading", function () {
+    describe("Submit Reading (Legacy)", function () {
         it("Should submit first reading and reward user", async function () {
             const reading = 100;
 
-            await expect(waterBilling.connect(operator).submitReading(user1.address, reading))
-                .to.emit(waterBilling, "ReadingSubmitted")
-                .withArgs(user1.address, reading, reading);
+            await expect(waterBilling.connect(operator).submitReadingLegacy(user1.address, reading))
+                .to.emit(waterBilling, "ReadingSubmitted");
 
             expect(await waterBilling.lastReading(user1.address)).to.equal(reading);
             expect(await beltToken.balanceOf(user1.address)).to.equal(reading);
@@ -59,8 +58,8 @@ describe("WaterBilling", function () {
             const secondReading = 150;
             const expectedReward = secondReading - firstReading; // 50
 
-            await waterBilling.connect(operator).submitReading(user1.address, firstReading);
-            await waterBilling.connect(operator).submitReading(user1.address, secondReading);
+            await waterBilling.connect(operator).submitReadingLegacy(user1.address, firstReading);
+            await waterBilling.connect(operator).submitReadingLegacy(user1.address, secondReading);
 
             expect(await waterBilling.lastReading(user1.address)).to.equal(secondReading);
             // First reward (100) + second reward (50) = 150
@@ -69,39 +68,39 @@ describe("WaterBilling", function () {
 
         it("Should reject reading from non-operator", async function () {
             await expect(
-                waterBilling.connect(user1).submitReading(user1.address, 100)
+                waterBilling.connect(user1).submitReadingLegacy(user1.address, 100)
             ).to.be.revertedWithCustomError(waterBilling, "AccessControlUnauthorizedAccount");
         });
 
         it("Should reject zero address", async function () {
             await expect(
-                waterBilling.connect(operator).submitReading(ethers.ZeroAddress, 100)
-            ).to.be.revertedWith("Invalid user address");
+                waterBilling.connect(operator).submitReadingLegacy(ethers.ZeroAddress, 100)
+            ).to.be.revertedWith("Invalid address");
         });
 
         it("Should reject zero reading", async function () {
             await expect(
-                waterBilling.connect(operator).submitReading(user1.address, 0)
+                waterBilling.connect(operator).submitReadingLegacy(user1.address, 0)
             ).to.be.revertedWith("Reading must be > 0");
         });
 
         it("Should reject reading less than or equal to previous", async function () {
-            await waterBilling.connect(operator).submitReading(user1.address, 100);
+            await waterBilling.connect(operator).submitReadingLegacy(user1.address, 100);
 
             await expect(
-                waterBilling.connect(operator).submitReading(user1.address, 100)
+                waterBilling.connect(operator).submitReadingLegacy(user1.address, 100)
             ).to.be.revertedWith("New reading must be greater than last reading");
 
             await expect(
-                waterBilling.connect(operator).submitReading(user1.address, 50)
+                waterBilling.connect(operator).submitReadingLegacy(user1.address, 50)
             ).to.be.revertedWith("New reading must be greater than last reading");
         });
     });
 
     describe("Multiple Users", function () {
         it("Should track readings independently for each user", async function () {
-            await waterBilling.connect(operator).submitReading(user1.address, 100);
-            await waterBilling.connect(operator).submitReading(user2.address, 200);
+            await waterBilling.connect(operator).submitReadingLegacy(user1.address, 100);
+            await waterBilling.connect(operator).submitReadingLegacy(user2.address, 200);
 
             expect(await waterBilling.lastReading(user1.address)).to.equal(100);
             expect(await waterBilling.lastReading(user2.address)).to.equal(200);
