@@ -9,10 +9,20 @@ import enum
 
 
 class UserRole(enum.Enum):
-    """Kullanıcı rolleri"""
-    CITIZEN = "citizen"  # Vatandaş
-    SERVICE_OPERATOR = "service_operator"  # Hizmet Operatörü
-    MUNICIPALITY_ADMIN = "municipality_admin"  # Belediye Yöneticisi
+    """
+    Kullanıcı rolleri
+    
+    - CITIZEN: Vatandaş - fotoğraf çeker, fatura beyanı, geri dönüşüm bildirimi
+    - MUNICIPALITY_STAFF: Personel - 6 aylık kontrol, atık kontrolü, fraud doğrulama
+    - SERVICE_OPERATOR: Backend AI - OCR, anomaly detection, tutarsızlık tespiti
+    - MUNICIPALITY_ADMIN: Admin - governance, parametre güncelleme
+    - ORACLE: Oracle - realtime dış veri akışı (GPS, enerji/su değerleri)
+    """
+    CITIZEN = "citizen"                      # Vatandaş
+    MUNICIPALITY_STAFF = "municipality_staff"  # Belediye Personeli (6 aylık kontrol)
+    SERVICE_OPERATOR = "service_operator"    # AI Backend / Hizmet Operatörü
+    MUNICIPALITY_ADMIN = "municipality_admin"  # Belediye Yöneticisi / Admin
+    ORACLE = "oracle"                        # Oracle - dış veri sağlayıcı
 
 
 class User(Base):
@@ -108,3 +118,50 @@ class PenaltyRecord(Base):
     created_by = Column(String(42), nullable=True)  # Municipality admin wallet address
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     paid_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class FraudRecord(Base):
+    """Fraud kayıtları - AI ve fiziksel kontrol fraud tespitleri"""
+    __tablename__ = "fraud_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(42), nullable=False, index=True)
+    fraud_type = Column(String(50), nullable=False)  # ai_detected, inspection_detected
+    detection_method = Column(String(50), nullable=True)  # ocr_anomaly, consumption_drop, physical_inspection
+    penalty_amount = Column(Float, nullable=True)
+    original_reading = Column(Integer, nullable=True)  # Bildirilen okuma
+    actual_reading = Column(Integer, nullable=True)  # Gerçek okuma (fiziksel kontrol)
+    underpayment_amount = Column(Float, nullable=True)  # Eksik ödenen tutar
+    interest_charged = Column(Float, nullable=True)  # Faiz tutarı
+    transaction_hash = Column(String(66), nullable=True, index=True)
+    detected_by = Column(String(42), nullable=True)  # AI system or inspector wallet
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    __table_args__ = (
+        Index('idx_fraud_wallet_type', 'wallet_address', 'fraud_type'),
+        Index('idx_fraud_created', 'created_at'),
+    )
+
+
+class InspectionSchedule(Base):
+    """Fiziksel kontrol planlaması - 6 aylık sayaç kontrolleri"""
+    __tablename__ = "inspection_schedules"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(42), nullable=False, index=True)
+    meter_no = Column(String(50), nullable=False)
+    scheduled_date = Column(DateTime(timezone=True), nullable=False)
+    inspector_wallet = Column(String(42), nullable=True, index=True)
+    status = Column(String(20), default="pending", index=True)  # pending, completed, fraud_found, cancelled
+    actual_reading = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    __table_args__ = (
+        Index('idx_inspection_wallet_status', 'wallet_address', 'status'),
+        Index('idx_inspection_scheduled', 'scheduled_date'),
+        Index('idx_inspection_inspector', 'inspector_wallet', 'status'),
+    )
+

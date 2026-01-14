@@ -17,7 +17,7 @@ if (!import.meta.env.VITE_API_BASE_URL) {
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, 
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -28,7 +28,7 @@ api.interceptors.response.use(
   (error) => {
     // Tüm axios hatalarını tek bir yerde normalize et
     if (error.code === 'ECONNABORTED') {
-         return Promise.reject(new Error('Request timeout. Please try again.'));
+      return Promise.reject(new Error('Request timeout. Please try again.'));
     }
 
     const status = error.response?.status;
@@ -41,15 +41,15 @@ api.interceptors.response.use(
     // Detaylı hata mesajları
     let customError;
     if (status === 400) {
-        customError = `Invalid request: ${message}`;
+      customError = `Invalid request: ${message}`;
     } else if (status === 401) {
-        customError = 'Unauthorized. Please check your credentials.';
+      customError = 'Unauthorized. Please check your credentials.';
     } else if (status === 413) {
-        customError = 'File too large. Please upload a smaller image.';
+      customError = 'File too large. Please upload a smaller image.';
     } else if (status >= 500) {
-        customError = 'Server error. Please try again later.';
+      customError = 'Server error. Please try again later.';
     } else {
-        customError = status ? `API error (${status}): ${message}` : `API error: ${message}`;
+      customError = status ? `API error (${status}): ${message}` : `API error: ${message}`;
     }
 
     // eslint-disable-next-line no-console
@@ -64,39 +64,40 @@ api.interceptors.response.use(
  * @param {File} file 
  */
 function validateImageFile(file) {
-    if (!file) {
-        throw new Error('No file provided');
-    }
+  if (!file) {
+    throw new Error('No file provided');
+  }
 
-    // Check file type
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-        throw new Error('Invalid file type. Please upload a JPEG, PNG, or WebP image.');
-    }
+  // Check file type
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error('Invalid file type. Please upload a JPEG, PNG, or WebP image.');
+  }
 
-    // Check file size (max 5MB to match backend)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    if (file.size > maxSize) {
-        throw new Error('File too large. Maximum size is 5MB.');
-    }
+  // Check file size (max 5MB to match backend)
+  const maxSize = 5 * 1024 * 1024; // 5MB
+  if (file.size > maxSize) {
+    throw new Error('File too large. Maximum size is 5MB.');
+  }
 
-    if (file.size === 0) {
-        throw new Error('File is empty.');
-    }
+  if (file.size === 0) {
+    throw new Error('File is empty.');
+  }
 
-    return true;
+  return true;
 }
 
 /**
  * Water Meter Photo Upload (AI Verification)
  * @param {File} imageFile
  * @param {string} walletAddress
+ * @param {boolean} userConfirmed - Set to true if user confirmed low consumption warning
  */
-export const uploadWaterMeterPhoto = async (imageFile, walletAddress) => {
+export const uploadWaterMeterPhoto = async (imageFile, walletAddress, userConfirmed = false) => {
   validateImageFile(imageFile);
-  
+
   if (walletAddress && !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
-      throw new Error('Invalid wallet address format');
+    throw new Error('Invalid wallet address format');
   }
 
   const formData = new FormData();
@@ -104,6 +105,8 @@ export const uploadWaterMeterPhoto = async (imageFile, walletAddress) => {
   if (walletAddress) {
     formData.append("wallet_address", walletAddress);
   }
+  // Include user confirmation flag for consumption drop warnings
+  formData.append("user_confirmed", userConfirmed ? "true" : "false");
 
   const response = await api.post("/api/water/validate", formData, {
     headers: {

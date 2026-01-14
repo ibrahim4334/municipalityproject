@@ -15,10 +15,15 @@ from config import DEBUG, API_CORS_ORIGINS
 from services.qr_service import generate_qr_token
 from services.recycling_validation import validate_recycling_submission
 
+# Fraud Detection Imports
+from services.fraud_detection import FraudDetectionService, fraud_detection_service
+from services.photo_validation import validate_photo_metadata, validate_photo_for_water_reading
+from services.inspection_service import InspectionService, inspection_service
+
 # New Imports
 from auth.routes import auth_bp
 from services.admin_routes import admin_bp
-from auth.middleware import require_citizen, require_service_operator, require_auth
+from auth.middleware import require_citizen, require_service_operator, require_auth, require_inspector
 from utils import error_response, validate_wallet_address, normalize_wallet_address
 from services.cleanup import cleanup_old_files
 from services.blockchain_service import blockchain_service
@@ -105,11 +110,15 @@ def health_check():
 @limiter.limit("10 per minute")
 def validate_water_meter():
     """
-    Sayaç fotoğrafını alır, OCR + anomali kontrolü yapar.
-    Sadece authenticate olmuş kullanıcılar (Citizen) kullanabilir.
+    Sayaç fotoğrafını alır, OCR + anomali + fraud kontrolü yapar.
+    - Real-time fotoğraf doğrulama
+    - %50 tüketim düşüşü uyarısı
+    - OCR anomali tespiti
+    - Fraud durumunda ceza tetikleme
     """
     # Current user info from decorator
     current_user = getattr(request, "current_user", None)
+    user_confirmed = request.form.get("user_confirmed", "false").lower() == "true"
     
     if "image" not in request.files:
         return error_response("Image not provided", 400)
@@ -122,11 +131,34 @@ def validate_water_meter():
     # Content-type kontrolü
     if image.mimetype not in {"image/jpeg", "image/png", "image/jpg"}:
         return error_response("Unsupported image type. Only JPG/PNG allowed.", 400)
+    
+    # ==============================
+    # REAL-TIME PHOTO VALIDATION
+    # ==============================
+    try:
+        photo_validation = validate_photo_for_water_reading(image)
+        
+        if not photo_validation["valid"]:
+            rejection_reason = photo_validation["validation_result"].get("rejection_reason", "Fotoğraf doğrulama başarısız")
+            errors = photo_validation.get("errors", [])
+            
+            return jsonify({
+                "valid": False,
+                "reason": "photo_validation_failed",
+                "message": rejection_reason,
+                "errors": errors,
+                "photo_metadata": photo_validation["validation_result"].get("metadata", {})
+            }), 400
+            
+    except Exception as e:
+        logger.warning(f"Photo validation error (continuing): {e}")
+        # Doğrulama hatası olursa devam et ama logla
 
     filename = f"{uuid.uuid4()}.jpg"
     filepath = os.path.join(UPLOAD_FOLDER, filename)
 
     try:
+        image.seek(0)  # Reset file pointer after validation
         image.save(filepath)
     except Exception as e:
         logger.exception("Failed to save uploaded image")
@@ -137,7 +169,6 @@ def validate_water_meter():
         ocr_result = read_water_meter(filepath)
     except Exception as e:
         logger.exception("OCR processing failed")
-        # Cleanup uploaded file on error
         try:
             os.remove(filepath)
         except:
@@ -145,62 +176,124 @@ def validate_water_meter():
         return error_response("OCR processing failed.", 500, {"details": str(e) if DEBUG else None})
 
     if not ocr_result.get("index"):
-        # Cleanup uploaded file on error
         try:
             os.remove(filepath)
         except:
             pass
-        return jsonify(
-            {
-                "valid": False,
-                "reason": "OCR failed",
-                "data": ocr_result,
-            }
-        ), 400
+        return jsonify({
+            "valid": False,
+            "reason": "OCR failed",
+            "data": ocr_result,
+        }), 400
 
-    # Mock geçmiş veri (gerçek sistemde DB'den gelecektir)
+    current_index = int(ocr_result.get("index"))
+    user_address = current_user["wallet_address"] if current_user else None
+    
+    # ==============================
+    # OCR ANOMALY DETECTION
+    # ==============================
+    if user_address:
+        try:
+            anomaly_result = fraud_detection_service.detect_ocr_anomalies(
+                ocr_result, 
+                filepath, 
+                user_address
+            )
+            
+            if anomaly_result["has_anomaly"]:
+                # Ciddi anomali - fraud uyarısı
+                if anomaly_result["anomaly_type"] in ["index_decreased", "meter_number_changed"]:
+                    logger.warning(f"Serious OCR anomaly for {user_address}: {anomaly_result}")
+                    
+                    # Fraud cezası tetikle (opsiyonel - admin onayı gerekebilir)
+                    # fraud_detection_service.trigger_fraud_penalty(user_address, "ai_detected", anomaly_result["details"])
+                    
+                    return jsonify({
+                        "valid": False,
+                        "reason": "fraud_detected",
+                        "anomaly_type": anomaly_result["anomaly_type"],
+                        "details": anomaly_result["details"],
+                        "message": "Sayaç okumasında anormallik tespit edildi. Fiziksel kontrol planlanacaktır."
+                    }), 400
+                    
+        except Exception as e:
+            logger.warning(f"OCR anomaly detection error (continuing): {e}")
+    
+    # ==============================
+    # CONSUMPTION DROP CHECK (%50+)
+    # ==============================
+    consumption_warning = None
+    if user_address:
+        try:
+            drop_check = fraud_detection_service.check_consumption_drop(user_address, current_index)
+            
+            if drop_check["warning"] and not user_confirmed:
+                # Kullanıcıdan onay gerekli
+                return jsonify({
+                    "valid": False,
+                    "requires_confirmation": True,
+                    "reason": "consumption_drop_warning",
+                    "current_consumption": drop_check["current_consumption"],
+                    "average_consumption": drop_check["average_consumption"],
+                    "drop_percent": drop_check["drop_percent"],
+                    "message": drop_check["message"],
+                    "warning": "Tüketiminiz geçmiş aylara göre önemli ölçüde düştü. Devam etmek istediğinizden emin misiniz?"
+                }), 200  # 200 çünkü bu bir uyarı, hata değil
+                
+            if drop_check["warning"]:
+                consumption_warning = drop_check
+                
+        except Exception as e:
+            logger.warning(f"Consumption drop check error (continuing): {e}")
+
+    # Mock geçmiş veri (gerçek sistemde DB'den gelir)
     history = get_mock_historical_data(ocr_result.get("meter_no"))
 
     if not history:
-        # Cleanup uploaded file on error
         try:
             os.remove(filepath)
         except:
             pass
-        return jsonify(
-            {
-                "valid": False,
-                "reason": "No historical data available",
-                "data": ocr_result,
-            }
-        ), 400
+        return jsonify({
+            "valid": False,
+            "reason": "No historical data available",
+            "data": ocr_result,
+        }), 400
 
-    # Anomali kontrolü
-    is_valid = check_anomaly(current_index=ocr_result["index"], historical_indexes=history)
+    # Anomali kontrolü (eski sistem - geriye uyumluluk)
+    is_valid = check_anomaly(current_index=current_index, historical_indexes=history)
     
     tx_hash = None
-    if is_valid and current_user:
-        # Blockchain'e kaydet (Best effort - fail safe)
+    if is_valid and user_address:
+        # Blockchain'e kaydet
         try:
             tx_hash = blockchain_service.submit_water_reading(
-                current_user["wallet_address"],
-                int(ocr_result.get("index"))
+                user_address,
+                current_index
             )
         except Exception as e:
             logger.error(f"Failed to submit reading to blockchain: {e}")
-            # Opsiyonel: Kuyruğa atıp retry mekanizması eklenebilir
 
-    return jsonify(
-        {
-            "valid": is_valid,
-            "meter_no": ocr_result.get("meter_no"),
-            "current_index": ocr_result.get("index"),
-            "historical_avg": sum(history) / len(history),
-            "reward_eligible": is_valid,
-            "processed_by": current_user["wallet_address"] if current_user else "anonymous",
-            "transaction_hash": tx_hash
+    response_data = {
+        "valid": is_valid,
+        "meter_no": ocr_result.get("meter_no"),
+        "current_index": current_index,
+        "historical_avg": sum(history) / len(history),
+        "reward_eligible": is_valid,
+        "processed_by": user_address if user_address else "anonymous",
+        "transaction_hash": tx_hash,
+        "photo_validated": True
+    }
+    
+    # Düşük tüketim uyarısı varsa ekle
+    if consumption_warning:
+        response_data["consumption_warning"] = {
+            "drop_percent": consumption_warning["drop_percent"],
+            "user_confirmed": user_confirmed,
+            "message": "Düşük tüketim onaylandı ve kaydedildi"
         }
-    )
+
+    return jsonify(response_data)
 
 
 @app.route("/api/recycling/generate-qr", methods=["POST"])
@@ -314,6 +407,184 @@ def validate_recycling():
         return error_response("Failed to validate recycling submission", 500, {"details": str(e) if DEBUG else None})
 
 
+# ==============================
+# INSPECTION ENDPOINTS
+# ==============================
+
+@app.route("/api/inspection/schedule", methods=["POST"])
+@require_service_operator
+@limiter.limit("20 per minute")
+def schedule_inspection():
+    """
+    6 aylık fiziksel kontrol planla.
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return error_response("Request body is required", 400)
+        
+        wallet_address = data.get("wallet_address")
+        meter_no = data.get("meter_no")
+        
+        if not wallet_address:
+            return error_response("wallet_address is required", 400)
+        if not meter_no:
+            return error_response("meter_no is required", 400)
+        
+        if not validate_wallet_address(wallet_address):
+            return error_response("Invalid wallet address format", 400)
+        
+        wallet_address = normalize_wallet_address(wallet_address)
+        
+        current_user = getattr(request, "current_user", None)
+        inspector_wallet = current_user["wallet_address"] if current_user else None
+        
+        result = inspection_service.schedule_inspection(
+            wallet_address,
+            meter_no,
+            inspector_wallet
+        )
+        
+        if result["success"]:
+            return jsonify(result), 201
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        logger.exception("Error scheduling inspection")
+        return error_response("Failed to schedule inspection", 500, {"details": str(e) if DEBUG else None})
+
+
+@app.route("/api/inspection/complete", methods=["POST"])
+@require_service_operator
+@limiter.limit("20 per minute")
+def complete_inspection():
+    """
+    Fiziksel kontrolü tamamla ve sonuçları kaydet.
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return error_response("Request body is required", 400)
+        
+        inspection_id = data.get("inspection_id")
+        actual_reading = data.get("actual_reading")
+        fraud_found = data.get("fraud_found", False)
+        notes = data.get("notes", "")
+        
+        if not inspection_id:
+            return error_response("inspection_id is required", 400)
+        if actual_reading is None:
+            return error_response("actual_reading is required", 400)
+        
+        current_user = getattr(request, "current_user", None)
+        inspector_wallet = current_user["wallet_address"] if current_user else "unknown"
+        
+        result = inspection_service.complete_inspection(
+            int(inspection_id),
+            inspector_wallet,
+            int(actual_reading),
+            bool(fraud_found),
+            notes
+        )
+        
+        return jsonify(result), 200 if result["success"] else 400
+            
+    except Exception as e:
+        logger.exception("Error completing inspection")
+        return error_response("Failed to complete inspection", 500, {"details": str(e) if DEBUG else None})
+
+
+@app.route("/api/inspection/pending", methods=["GET"])
+@require_service_operator
+@limiter.limit("30 per minute")
+def get_pending_inspections():
+    """
+    Bekleyen kontrolleri listele.
+    """
+    try:
+        current_user = getattr(request, "current_user", None)
+        inspector_wallet = request.args.get("inspector_wallet")
+        
+        if not inspector_wallet and current_user:
+            inspector_wallet = current_user.get("wallet_address")
+        
+        inspections = inspection_service.get_pending_inspections(inspector_wallet)
+        
+        return jsonify({
+            "success": True,
+            "inspections": inspections,
+            "count": len(inspections)
+        }), 200
+            
+    except Exception as e:
+        logger.exception("Error getting pending inspections")
+        return error_response("Failed to get pending inspections", 500, {"details": str(e) if DEBUG else None})
+
+
+@app.route("/api/inspection/due", methods=["GET"])
+@require_service_operator
+@limiter.limit("10 per minute")
+def get_users_due_for_inspection():
+    """
+    6 aylık kontrol süresi dolan kullanıcıları getir.
+    """
+    try:
+        users = inspection_service.get_users_due_for_inspection()
+        
+        return jsonify({
+            "success": True,
+            "users": users,
+            "count": len(users)
+        }), 200
+            
+    except Exception as e:
+        logger.exception("Error getting users due for inspection")
+        return error_response("Failed to get users due for inspection", 500, {"details": str(e) if DEBUG else None})
+
+
+# ==============================
+# FRAUD STATUS ENDPOINT
+# ==============================
+
+@app.route("/api/fraud/status/<wallet_address>", methods=["GET"])
+@require_auth
+@limiter.limit("30 per minute")
+def get_fraud_status(wallet_address):
+    """
+    Kullanıcının fraud durumunu getir.
+    """
+    try:
+        if not validate_wallet_address(wallet_address):
+            return error_response("Invalid wallet address format", 400)
+        
+        wallet_address = normalize_wallet_address(wallet_address)
+        
+        # Sadece kendi durumunu veya admin görebilir
+        current_user = getattr(request, "current_user", None)
+        if current_user:
+            user_wallet = current_user.get("wallet_address", "").lower()
+            user_role = current_user.get("role", "")
+            
+            if user_wallet != wallet_address.lower() and user_role not in ["service_operator", "municipality_admin"]:
+                return error_response("Unauthorized to view this user's fraud status", 403)
+        
+        status = fraud_detection_service.get_user_fraud_status(wallet_address)
+        
+        return jsonify({
+            "success": True,
+            "wallet_address": wallet_address,
+            **status
+        }), 200
+            
+    except Exception as e:
+        logger.exception("Error getting fraud status")
+        return error_response("Failed to get fraud status", 500, {"details": str(e) if DEBUG else None})
+
+
 if __name__ == "__main__":
     from config import API_HOST, API_PORT
     app.run(host=API_HOST, port=API_PORT, debug=DEBUG)
+

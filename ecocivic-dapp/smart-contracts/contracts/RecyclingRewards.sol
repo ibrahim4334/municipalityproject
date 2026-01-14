@@ -2,36 +2,106 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./BELTToken.sol";
 
-contract RecyclingRewards is AccessControl {
+/**
+ * @title RecyclingRewards
+ * @notice Geri dönüşüm ödül sistemi - atık türlerine göre token kazanımı
+ * @dev Personel onayı zorunlu, fraud kontrolü yapılır
+ */
+contract RecyclingRewards is AccessControl, ReentrancyGuard {
 
+    // ==============================
+    // ROLES
+    // ==============================
     bytes32 public constant SERVICE_OPERATOR_ROLE = keccak256("SERVICE_OPERATOR_ROLE");
+    bytes32 public constant MUNICIPALITY_STAFF_ROLE = keccak256("MUNICIPALITY_STAFF_ROLE");
 
     BELTToken public beltToken;
 
-    enum MaterialType {
-        Glass,
-        Paper,
-        Metal
+    // ==============================
+    // WASTE TYPES & TOKEN RATES
+    // ==============================
+    enum WasteType {
+        Plastic,      // Plastik - 10 token/kg
+        Glass,        // Cam - 12 token/kg
+        Metal,        // Metal - 15 token/kg
+        Paper,        // Kağıt/Karton - 8 token/kg
+        Electronic    // Elektronik - 25 token/adet
     }
 
-    mapping(MaterialType => uint256) public rewardMultiplier;
-    mapping(string => bool) public usedQrHashes; // QR hash tekrar kullanım kontrolü
+    // Token rates (per kg, elektronik için adet)
+    // Değerler: 10 = 1.0 token (ondalık destei için 10x çarpan)
+    mapping(WasteType => uint256) public tokenRatePerUnit;
+    
+    // Waste type labels (for verification)
+    mapping(WasteType => string) public wasteTypeLabels;
+    
+    // Waste subcategories
+    mapping(WasteType => string[]) private wasteSubcategories;
+
+    // QR hash tekrar kullanım kontrolü
+    mapping(string => bool) public usedQrHashes;
+    
+    // Pending approvals (staff onayı bekleyenler)
+    struct PendingSubmission {
+        address user;
+        WasteType wasteType;
+        uint256 amount;         // kg veya adet
+        string qrHash;
+        string subcategory;     // PET, HDPE, yeşil cam, vb.
+        uint256 submittedAt;
+        bool approved;
+        bool rejected;
+        address approvedBy;
+        string rejectionReason;
+    }
+    
+    mapping(uint256 => PendingSubmission) public pendingSubmissions;
+    uint256 public submissionCounter;
+    mapping(address => uint256[]) public userSubmissions;
+    
+    // Fraud tracking
+    mapping(address => uint256) public userFraudCount;
+    mapping(address => bool) public isBlacklisted;
+
     bool public paused;
 
-    uint256 public constant MAX_BASE_AMOUNT = 10000; // Max 10000 kg per transaction
+    uint256 public constant MAX_AMOUNT_PER_SUBMISSION = 1000; // Max 1000 kg/adet per submission
 
-    event RewardGranted(
+    // ==============================
+    // EVENTS
+    // ==============================
+    event SubmissionCreated(
+        uint256 indexed submissionId,
         address indexed user,
-        MaterialType material,
+        WasteType wasteType,
         uint256 amount,
+        string subcategory,
         string qrHash
     );
+    event SubmissionApproved(
+        uint256 indexed submissionId,
+        address indexed user,
+        uint256 rewardAmount,
+        address approvedBy
+    );
+    event SubmissionRejected(
+        uint256 indexed submissionId,
+        address indexed user,
+        string reason,
+        address rejectedBy
+    );
+    event FraudDetected(address indexed user, string reason);
+    event UserBlacklisted(address indexed user);
+    event TokenRateUpdated(WasteType wasteType, uint256 newRate);
     event Paused(address account);
     event Unpaused(address account);
-    event RewardMultiplierUpdated(MaterialType material, uint256 newMultiplier);
 
+    // ==============================
+    // MODIFIERS
+    // ==============================
     modifier whenNotPaused() {
         require(!paused, "Contract is paused");
         _;
@@ -41,80 +111,353 @@ contract RecyclingRewards is AccessControl {
         require(_addr != address(0), "Invalid address");
         _;
     }
+    
+    modifier notBlacklisted(address user) {
+        require(!isBlacklisted[user], "User is blacklisted");
+        _;
+    }
 
+    // ==============================
+    // CONSTRUCTOR
+    // ==============================
     constructor(address _beltToken) {
         require(_beltToken != address(0), "Invalid BELT token address");
         beltToken = BELTToken(_beltToken);
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(SERVICE_OPERATOR_ROLE, msg.sender); // Deployer also operator for testing
+        _grantRole(SERVICE_OPERATOR_ROLE, msg.sender);
+        _grantRole(MUNICIPALITY_STAFF_ROLE, msg.sender);
 
-        // Katsayılar (10 = 1.0)
-        rewardMultiplier[MaterialType.Glass] = 10;
-        rewardMultiplier[MaterialType.Paper] = 15;
-        rewardMultiplier[MaterialType.Metal] = 20;
+        // Token rates (10x multiplier for decimals: 100 = 10 token)
+        tokenRatePerUnit[WasteType.Plastic] = 100;     // 10 token/kg
+        tokenRatePerUnit[WasteType.Glass] = 120;       // 12 token/kg
+        tokenRatePerUnit[WasteType.Metal] = 150;       // 15 token/kg
+        tokenRatePerUnit[WasteType.Paper] = 80;        // 8 token/kg
+        tokenRatePerUnit[WasteType.Electronic] = 250;  // 25 token/adet
+        
+        // Labels
+        wasteTypeLabels[WasteType.Plastic] = "Plastik";
+        wasteTypeLabels[WasteType.Glass] = "Cam";
+        wasteTypeLabels[WasteType.Metal] = "Metal";
+        wasteTypeLabels[WasteType.Paper] = "Kagit/Karton";
+        wasteTypeLabels[WasteType.Electronic] = "Elektronik";
+    }
+
+    // ==============================
+    // CITIZEN FUNCTIONS
+    // ==============================
+
+    /**
+     * @notice Vatandaş geri dönüşüm bildirimi yapar (onay bekler)
+     * @param wasteType Atık türü
+     * @param amount Miktar (kg veya adet)
+     * @param qrHash Unique QR hash
+     * @param subcategory Alt kategori (PET, HDPE, yeşil cam, vb.)
+     */
+    function submitRecycling(
+        WasteType wasteType,
+        uint256 amount,
+        string calldata qrHash,
+        string calldata subcategory
+    ) 
+        external 
+        whenNotPaused 
+        notBlacklisted(msg.sender)
+        nonReentrant
+        returns (uint256 submissionId)
+    {
+        require(amount > 0, "Amount must be > 0");
+        require(amount <= MAX_AMOUNT_PER_SUBMISSION, "Amount exceeds maximum");
+        require(bytes(qrHash).length > 0, "QR hash required");
+        require(!usedQrHashes[qrHash], "QR hash already used");
+
+        submissionCounter++;
+        submissionId = submissionCounter;
+
+        pendingSubmissions[submissionId] = PendingSubmission({
+            user: msg.sender,
+            wasteType: wasteType,
+            amount: amount,
+            qrHash: qrHash,
+            subcategory: subcategory,
+            submittedAt: block.timestamp,
+            approved: false,
+            rejected: false,
+            approvedBy: address(0),
+            rejectionReason: ""
+        });
+
+        userSubmissions[msg.sender].push(submissionId);
+        usedQrHashes[qrHash] = true;
+
+        emit SubmissionCreated(submissionId, msg.sender, wasteType, amount, subcategory, qrHash);
+        
+        return submissionId;
+    }
+
+    // ==============================
+    // STAFF APPROVAL FUNCTIONS
+    // ==============================
+
+    /**
+     * @notice Personel onayı - ödül verilir
+     * @param submissionId Submission ID
+     */
+    function approveSubmission(uint256 submissionId) 
+        external 
+        onlyRole(MUNICIPALITY_STAFF_ROLE) 
+        whenNotPaused
+        nonReentrant
+    {
+        PendingSubmission storage submission = pendingSubmissions[submissionId];
+        
+        require(submission.user != address(0), "Submission not found");
+        require(!submission.approved, "Already approved");
+        require(!submission.rejected, "Already rejected");
+        require(!isBlacklisted[submission.user], "User is blacklisted");
+
+        submission.approved = true;
+        submission.approvedBy = msg.sender;
+
+        // Token hesapla
+        uint256 reward = calculateReward(submission.wasteType, submission.amount);
+        require(reward > 0, "Reward calculation failed");
+
+        // Token mint
+        beltToken.mint(submission.user, reward);
+
+        emit SubmissionApproved(submissionId, submission.user, reward, msg.sender);
     }
 
     /**
-     * @notice QR doğrulaması sonrası ödül verilir
-     * @dev Bu fonksiyon backend / belediye tarafından çağrılmalı
+     * @notice Personel reddi - fraud durumunda
+     * @param submissionId Submission ID
+     * @param reason Red sebebi
+     * @param isFraud Fraud mu
+     */
+    function rejectSubmission(
+        uint256 submissionId, 
+        string calldata reason,
+        bool isFraud
+    ) 
+        external 
+        onlyRole(MUNICIPALITY_STAFF_ROLE)
+        whenNotPaused
+    {
+        PendingSubmission storage submission = pendingSubmissions[submissionId];
+        
+        require(submission.user != address(0), "Submission not found");
+        require(!submission.approved, "Already approved");
+        require(!submission.rejected, "Already rejected");
+        require(bytes(reason).length > 0, "Reason required");
+
+        submission.rejected = true;
+        submission.rejectionReason = reason;
+        submission.approvedBy = msg.sender;
+
+        if (isFraud) {
+            userFraudCount[submission.user]++;
+            emit FraudDetected(submission.user, reason);
+            
+            // 3 fraud = blacklist
+            if (userFraudCount[submission.user] >= 3) {
+                isBlacklisted[submission.user] = true;
+                emit UserBlacklisted(submission.user);
+            }
+        }
+
+        emit SubmissionRejected(submissionId, submission.user, reason, msg.sender);
+    }
+
+    /**
+     * @notice Toplu onay (verimlilik için)
+     */
+    function batchApprove(uint256[] calldata submissionIds) 
+        external 
+        onlyRole(MUNICIPALITY_STAFF_ROLE)
+        whenNotPaused
+    {
+        for (uint256 i = 0; i < submissionIds.length; i++) {
+            PendingSubmission storage submission = pendingSubmissions[submissionIds[i]];
+            
+            if (submission.user != address(0) && 
+                !submission.approved && 
+                !submission.rejected &&
+                !isBlacklisted[submission.user]) 
+            {
+                submission.approved = true;
+                submission.approvedBy = msg.sender;
+
+                uint256 reward = calculateReward(submission.wasteType, submission.amount);
+                if (reward > 0) {
+                    beltToken.mint(submission.user, reward);
+                    emit SubmissionApproved(submissionIds[i], submission.user, reward, msg.sender);
+                }
+            }
+        }
+    }
+
+    // ==============================
+    // LEGACY FUNCTION (backwards compatibility)
+    // ==============================
+    
+    /**
+     * @notice QR doğrulaması sonrası direkt ödül (eski sistem)
+     * @dev Backend / belediye tarafından çağrılır - staff rolü gerekli
      */
     function rewardRecycling(
         address user,
-        MaterialType material,
+        WasteType wasteType,
         uint256 baseAmount,
         string calldata qrHash
-    ) external onlyRole(SERVICE_OPERATOR_ROLE) whenNotPaused validAddress(user) {
-        require(baseAmount > 0, "Base amount must be > 0");
-        require(baseAmount <= MAX_BASE_AMOUNT, "Base amount exceeds maximum");
-        require(bytes(qrHash).length > 0, "QR hash cannot be empty");
+    ) 
+        external 
+        onlyRole(MUNICIPALITY_STAFF_ROLE) 
+        whenNotPaused 
+        validAddress(user)
+        notBlacklisted(user)
+        nonReentrant
+    {
+        require(baseAmount > 0, "Amount must be > 0");
+        require(baseAmount <= MAX_AMOUNT_PER_SUBMISSION, "Amount exceeds maximum");
+        require(bytes(qrHash).length > 0, "QR hash required");
         require(!usedQrHashes[qrHash], "QR hash already used");
 
-        // Material type validation
-        require(
-            material == MaterialType.Glass || 
-            material == MaterialType.Paper || 
-            material == MaterialType.Metal,
-            "Invalid material type"
-        );
-
-        uint256 reward = (baseAmount * rewardMultiplier[material]) / 10;
-        require(reward > 0, "Reward calculation resulted in zero");
-
-        // Mark QR hash as used
         usedQrHashes[qrHash] = true;
+
+        uint256 reward = calculateReward(wasteType, baseAmount);
+        require(reward > 0, "Reward calculation failed");
 
         beltToken.mint(user, reward);
 
-        emit RewardGranted(user, material, reward, qrHash);
+        emit SubmissionApproved(0, user, reward, msg.sender);
+    }
+
+    // ==============================
+    // UTILITY FUNCTIONS
+    // ==============================
+
+    /**
+     * @notice Token ödülü hesapla
+     * @param wasteType Atık türü
+     * @param amount Miktar (kg veya adet)
+     * @return Token miktarı
+     */
+    function calculateReward(WasteType wasteType, uint256 amount) 
+        public 
+        view 
+        returns (uint256) 
+    {
+        uint256 rate = tokenRatePerUnit[wasteType];
+        // rate 10x multiplier ile saklandığı için 10'a böl
+        return (amount * rate) / 10;
     }
 
     /**
-     * @notice Reward multiplier güncelle
+     * @notice Bekleyen submission'ları getir
      */
-    function setRewardMultiplier(MaterialType material, uint256 multiplier) 
+    function getPendingSubmissions(uint256 startId, uint256 count) 
+        external 
+        view 
+        returns (uint256[] memory ids, address[] memory users, uint256[] memory amounts)
+    {
+        uint256 endId = startId + count;
+        if (endId > submissionCounter) endId = submissionCounter + 1;
+        
+        uint256 pendingCount = 0;
+        for (uint256 i = startId; i < endId; i++) {
+            if (!pendingSubmissions[i].approved && !pendingSubmissions[i].rejected) {
+                pendingCount++;
+            }
+        }
+        
+        ids = new uint256[](pendingCount);
+        users = new address[](pendingCount);
+        amounts = new uint256[](pendingCount);
+        
+        uint256 j = 0;
+        for (uint256 i = startId; i < endId && j < pendingCount; i++) {
+            if (!pendingSubmissions[i].approved && !pendingSubmissions[i].rejected) {
+                ids[j] = i;
+                users[j] = pendingSubmissions[i].user;
+                amounts[j] = pendingSubmissions[i].amount;
+                j++;
+            }
+        }
+        
+        return (ids, users, amounts);
+    }
+
+    /**
+     * @notice Kullanıcının submission'larını getir
+     */
+    function getUserSubmissions(address user) 
+        external 
+        view 
+        returns (uint256[] memory) 
+    {
+        return userSubmissions[user];
+    }
+
+    /**
+     * @notice Tüm atık türleri için token oranlarını getir
+     */
+    function getAllTokenRates() 
+        external 
+        view 
+        returns (
+            uint256 plastic,
+            uint256 glass,
+            uint256 metal,
+            uint256 paper,
+            uint256 electronic
+        ) 
+    {
+        return (
+            tokenRatePerUnit[WasteType.Plastic] / 10,
+            tokenRatePerUnit[WasteType.Glass] / 10,
+            tokenRatePerUnit[WasteType.Metal] / 10,
+            tokenRatePerUnit[WasteType.Paper] / 10,
+            tokenRatePerUnit[WasteType.Electronic] / 10
+        );
+    }
+
+    // ==============================
+    // ADMIN FUNCTIONS
+    // ==============================
+
+    /**
+     * @notice Token rate güncelle
+     */
+    function setTokenRate(WasteType wasteType, uint256 newRate) 
         external 
         onlyRole(DEFAULT_ADMIN_ROLE) 
     {
-        require(multiplier > 0, "Multiplier must be > 0");
-        require(multiplier <= 100, "Multiplier too high"); // Max 10x
+        require(newRate > 0, "Rate must be > 0");
+        require(newRate <= 1000, "Rate too high"); // Max 100 token/unit
         
-        rewardMultiplier[material] = multiplier;
-        emit RewardMultiplierUpdated(material, multiplier);
+        tokenRatePerUnit[wasteType] = newRate;
+        emit TokenRateUpdated(wasteType, newRate);
     }
 
     /**
-     * @notice Contract'ı durdur (acil durumlar için)
+     * @notice Kullanıcıyı blacklist'ten çıkar
      */
+    function removeFromBlacklist(address user) 
+        external 
+        onlyRole(DEFAULT_ADMIN_ROLE)
+        validAddress(user)
+    {
+        isBlacklisted[user] = false;
+        userFraudCount[user] = 0;
+    }
+
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(!paused, "Already paused");
         paused = true;
         emit Paused(msg.sender);
     }
 
-    /**
-     * @notice Contract'ı devam ettir
-     */
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(paused, "Not paused");
         paused = false;

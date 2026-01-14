@@ -76,3 +76,40 @@ def require_municipality_admin(f):
 def require_service_operator_or_admin(f):
     """Service Operator veya Municipality Admin rolü gerektirir"""
     return require_role(UserRole.SERVICE_OPERATOR, UserRole.MUNICIPALITY_ADMIN)(f)
+
+
+def require_inspector(f):
+    """
+    Inspector rolü gerektirir (fiziksel kontroller için).
+    Municipality Staff veya Service Operator olabilir.
+    """
+    return require_role(UserRole.MUNICIPALITY_STAFF, UserRole.SERVICE_OPERATOR, UserRole.MUNICIPALITY_ADMIN)(f)
+
+
+def require_municipality_staff(f):
+    """
+    Municipality Staff rolü gerektirir.
+    6 aylık kontrol, atık kontrolü, fraud doğrulama için.
+    """
+    return require_role(UserRole.MUNICIPALITY_STAFF, UserRole.MUNICIPALITY_ADMIN)(f)
+
+
+def require_oracle(f):
+    """
+    Oracle rolü gerektirir.
+    Dış veri sağlayıcılar (GPS, realtime değerler) için.
+    """
+    return require_role(UserRole.ORACLE)(f)
+
+
+def require_any_staff(f):
+    """
+    Herhangi bir personel rolü gerektirir.
+    """
+    return require_role(
+        UserRole.SERVICE_OPERATOR, 
+        UserRole.MUNICIPALITY_STAFF, 
+        UserRole.MUNICIPALITY_ADMIN
+    )(f)
+
+
