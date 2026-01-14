@@ -35,14 +35,14 @@ async function main() {
   // 2. Deploy Recycling Rewards
   const recyclingRewards = await deployRewards(await beltToken.getAddress());
 
-  // 3. Setup Ownership Transfer (RISK: ONE WAY)
+  // 3. Grant MINTER_ROLE to RecyclingRewards
   console.log("-------------------------------------------------------------");
-  console.log("WARNING: Transferring BELTToken ownership to RecyclingRewards.");
-  console.log("This action is irreversible. The deployer will strictly lose minting rights.");
+  console.log("Granting MINTER_ROLE to RecyclingRewards contract...");
   console.log("-------------------------------------------------------------");
 
-  await beltToken.transferOwnership(await recyclingRewards.getAddress());
-  console.log("Ownership transferred successfully.");
+  const MINTER_ROLE = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("MINTER_ROLE"));
+  await beltToken.grantRole(MINTER_ROLE, await recyclingRewards.getAddress());
+  console.log("MINTER_ROLE granted successfully.");
 
   // 4. Deploy Deposit System
   let depositTokenAddress = process.env.USDC_ADDRESS;

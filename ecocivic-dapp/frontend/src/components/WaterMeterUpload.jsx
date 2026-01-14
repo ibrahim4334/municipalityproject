@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { validateWaterMeter } from "../services/apiService";
+import { validateWaterMeter } from "../services/api";
 import { getContract, sendTransaction } from "../services/web3";
 import { useWallet } from "../context/WalletContext";
 import WaterBillingABI from "../abi/WaterBilling.json";
@@ -107,9 +107,9 @@ export default function WaterMeterUpload() {
       }
     } catch (error) {
       console.error("Water meter upload error:", error);
-      
+
       let errorMessage = "İşlem sırasında bir hata oluştu";
-      
+
       if (error.message) {
         if (error.message.includes("rejected")) {
           errorMessage = "İşlem kullanıcı tarafından reddedildi";
@@ -121,7 +121,7 @@ export default function WaterMeterUpload() {
           errorMessage = error.message;
         }
       }
-      
+
       setError(errorMessage);
       setStatus("");
     } finally {
@@ -139,9 +139,9 @@ export default function WaterMeterUpload() {
         </div>
       )}
 
-      <input 
-        type="file" 
-        accept="image/jpeg,image/jpg,image/png,image/webp" 
+      <input
+        type="file"
+        accept="image/jpeg,image/jpg,image/png,image/webp"
         onChange={handleImageChange}
         disabled={loading}
         style={{ marginBottom: "10px" }}
@@ -156,7 +156,7 @@ export default function WaterMeterUpload() {
       <button
         onClick={handleSubmit}
         disabled={loading || !image || !account}
-        style={{ 
+        style={{
           marginTop: "10px",
           padding: "10px 20px",
           backgroundColor: loading ? "#ccc" : "#4caf50",
@@ -176,10 +176,10 @@ export default function WaterMeterUpload() {
       )}
 
       {error && (
-        <div style={{ 
-          marginTop: "10px", 
-          padding: "10px", 
-          backgroundColor: "#ffebee", 
+        <div style={{
+          marginTop: "10px",
+          padding: "10px",
+          backgroundColor: "#ffebee",
           color: "#c62828",
           borderRadius: "4px",
           border: "1px solid #ef5350"

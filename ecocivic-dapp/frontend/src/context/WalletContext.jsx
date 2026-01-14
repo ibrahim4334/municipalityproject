@@ -5,19 +5,19 @@ const WalletContext = createContext();
 
 export const useWallet = () => useContext(WalletContext);
 
-const EXPECTED_CHAIN_ID = import.meta.env.VITE_CHAIN_ID || "80001"; // Mumbai testnet
+const EXPECTED_CHAIN_ID = import.meta.env.VITE_CHAIN_ID || "31337"; // Local Hardhat
 
-// Polygon Mumbai Network Configuration
-const POLYGON_MUMBAI_NETWORK = {
-    chainId: '0x13881', // 80001 in hex
-    chainName: 'Polygon Mumbai',
+// Local Hardhat Network Configuration
+const HARDHAT_LOCAL_NETWORK = {
+    chainId: '0x7A69', // 31337 in hex
+    chainName: 'Hardhat Local',
     nativeCurrency: {
-        name: 'MATIC',
-        symbol: 'MATIC',
+        name: 'ETH',
+        symbol: 'ETH',
         decimals: 18,
     },
-    rpcUrls: ['https://rpc-mumbai.maticvigil.com'],
-    blockExplorerUrls: ['https://mumbai.polygonscan.com'],
+    rpcUrls: ['http://127.0.0.1:8545'],
+    blockExplorerUrls: [],
 };
 
 export const WalletProvider = ({ children }) => {
@@ -47,11 +47,11 @@ export const WalletProvider = ({ children }) => {
             const network = await prov.getNetwork();
             const currentChainId = network.chainId.toString();
             setChainId(currentChainId);
-            
+
             if (currentChainId !== EXPECTED_CHAIN_ID) {
                 return {
                     isValid: false,
-                    message: `Please switch to Polygon Mumbai network (Chain ID: ${EXPECTED_CHAIN_ID})`
+                    message: `Please switch to Hardhat Local network (Chain ID: ${EXPECTED_CHAIN_ID})`
                 };
             }
             return { isValid: true };
@@ -77,7 +77,7 @@ export const WalletProvider = ({ children }) => {
             try {
                 await window.ethereum.request({
                     method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: POLYGON_MUMBAI_NETWORK.chainId }],
+                    params: [{ chainId: HARDHAT_LOCAL_NETWORK.chainId }],
                 });
                 setIsSwitchingNetwork(false);
                 return true;
@@ -88,7 +88,7 @@ export const WalletProvider = ({ children }) => {
                     try {
                         await window.ethereum.request({
                             method: 'wallet_addEthereumChain',
-                            params: [POLYGON_MUMBAI_NETWORK],
+                            params: [HARDHAT_LOCAL_NETWORK],
                         });
                         setIsSwitchingNetwork(false);
                         return true;
@@ -123,13 +123,13 @@ export const WalletProvider = ({ children }) => {
 
         try {
             const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-            
+
             if (!accounts || accounts.length === 0) {
                 throw new Error("No accounts found");
             }
 
             const _provider = new ethers.BrowserProvider(window.ethereum);
-            
+
             // Check network
             const networkCheck = await checkNetwork(_provider);
             if (!networkCheck.isValid) {
@@ -155,21 +155,21 @@ export const WalletProvider = ({ children }) => {
             setAccount(address);
             setProvider(_provider);
             setSigner(_signer);
-            
+
             await updateBalance(address, _provider);
 
             setIsConnecting(false);
             return true;
         } catch (error) {
             console.error("Error connecting wallet:", error);
-            
+
             let errorMessage = "Failed to connect wallet";
             if (error.code === 4001) {
                 errorMessage = "User rejected wallet connection";
             } else if (error.message) {
                 errorMessage = error.message;
             }
-            
+
             setError(errorMessage);
             setIsConnecting(false);
             return false;
@@ -201,7 +201,7 @@ export const WalletProvider = ({ children }) => {
                 // Chain changed, update state
                 const _provider = new ethers.BrowserProvider(window.ethereum);
                 const networkCheck = await checkNetwork(_provider);
-                
+
                 if (networkCheck.isValid && account) {
                     // Network is correct, reconnect
                     const _signer = await _provider.getSigner();
@@ -210,7 +210,7 @@ export const WalletProvider = ({ children }) => {
                     await updateBalance(account, _provider);
                 } else {
                     // Network is wrong, disconnect
-                    setError("Wrong network detected. Please switch to Polygon Mumbai.");
+                    setError("Wrong network detected. Please switch to Hardhat Local.");
                 }
             };
 
@@ -254,11 +254,11 @@ export const WalletProvider = ({ children }) => {
     }, []);
 
     return (
-        <WalletContext.Provider value={{ 
-            account, 
-            balance, 
-            provider, 
-            signer, 
+        <WalletContext.Provider value={{
+            account,
+            balance,
+            provider,
+            signer,
             chainId,
             isConnecting,
             isSwitchingNetwork,

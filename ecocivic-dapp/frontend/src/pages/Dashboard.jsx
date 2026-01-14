@@ -3,7 +3,7 @@ import { Typography, Grid, Paper, Card, CardContent, Button, Divider, Box, Dialo
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { useWallet } from '../context/WalletContext';
-import { validateWaterMeter } from '../services/apiService';
+import { validateWaterMeter } from '../services/api';
 import { getBeltBalance } from '../services/contractService';
 
 function Dashboard() {

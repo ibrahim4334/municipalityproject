@@ -19,7 +19,9 @@ describe("EcoCivic System", function () {
         RecyclingRewards = await ethers.getContractFactory("RecyclingRewards");
         recyclingRewards = await RecyclingRewards.deploy(await beltToken.getAddress());
 
-        await beltToken.transferOwnership(await recyclingRewards.getAddress());
+        // Grant MINTER_ROLE to RecyclingRewards so it can mint BELT tokens
+        const MINTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("MINTER_ROLE"));
+        await beltToken.grantRole(MINTER_ROLE, await recyclingRewards.getAddress());
 
         // 2. Setup Mocks
         MockERC20 = await ethers.getContractFactory("MockERC20");
@@ -46,10 +48,10 @@ describe("EcoCivic System", function () {
             expect(await beltToken.balanceOf(addr1.address)).to.equal(100);
         });
 
-        it("Should reject non-owner calls", async function () {
+        it("Should reject non-operator calls", async function () {
             await expect(
                 recyclingRewards.connect(addr1).rewardRecycling(addr1.address, 0, 100, "hash")
-            ).to.be.revertedWithCustomError(recyclingRewards, "OwnableUnauthorizedAccount");
+            ).to.be.revertedWithCustomError(recyclingRewards, "AccessControlUnauthorizedAccount");
         });
     });
 
