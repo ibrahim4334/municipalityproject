@@ -165,3 +165,98 @@ class InspectionSchedule(Base):
         Index('idx_inspection_inspector', 'inspector_wallet', 'status'),
     )
 
+
+# ==============================
+# EXTENDED ROLES
+# ==============================
+
+class ExtendedRole(enum.Enum):
+    """
+    Genişletilmiş roller - Smart Contract ile eşleşen
+    
+    - AI_VERIFIER: AI doğrulama sistemi (fraud kanıtı gönderebilir)
+    - INSPECTOR: Fiziksel kontrol yapan personel
+    - RECYCLING_AUDITOR: Geri dönüşüm onay personeli
+    """
+    AI_VERIFIER = "ai_verifier"           # AI fraud detection
+    INSPECTOR = "inspector"               # Physical inspection
+    RECYCLING_AUDITOR = "recycling_auditor"  # Recycling approval
+
+
+class FraudReport(Base):
+    """
+    Fraud raporları - AI skorlaması ve kullanıcı onayı
+    
+    Workflow:
+    1. AI fraud skoru hesaplar
+    2. Skor >= 50 ise rapor oluşturulur
+    3. Kullanıcıdan onay istenir (is_confirmed)
+    4. Onay durumuna göre işlem yapılır
+    """
+    __tablename__ = "fraud_reports"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(42), nullable=False, index=True)
+    
+    # AI Scoring
+    ai_score = Column(Integer, nullable=False)  # 0-100
+    risk_level = Column(String(20), nullable=False)  # low, medium, high, critical
+    anomalies = Column(Text, nullable=True)  # JSON list of anomalies
+    
+    # Confirmation
+    is_confirmed = Column(Boolean, default=False)  # Kullanıcı onayladı mı
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Reading data
+    current_reading = Column(Integer, nullable=True)
+    current_consumption = Column(Float, nullable=True)
+    average_consumption = Column(Float, nullable=True)
+    drop_percent = Column(Float, nullable=True)
+    
+    # Action taken
+    action_taken = Column(String(50), nullable=True)  # penalty_applied, under_review, confirmation_needed
+    penalty_amount = Column(Float, nullable=True)
+    transaction_hash = Column(String(66), nullable=True)
+    
+    # Metadata
+    image_path = Column(String(255), nullable=True)
+    photo_timestamp = Column(DateTime(timezone=True), nullable=True)
+    has_gps = Column(Boolean, default=True)
+    was_edited = Column(Boolean, default=False)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    __table_args__ = (
+        Index('idx_fraud_report_wallet', 'wallet_address'),
+        Index('idx_fraud_report_score', 'ai_score'),
+        Index('idx_fraud_report_confirmed', 'is_confirmed'),
+        Index('idx_fraud_report_created', 'created_at'),
+    )
+
+
+class MaterialMultiplier(Base):
+    """
+    Geri dönüşüm materyal çarpanları
+    Token katsayılarını yönetir
+    """
+    __tablename__ = "material_multipliers"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    material_type = Column(String(20), nullable=False, unique=True, index=True)
+    multiplier = Column(Float, nullable=False)  # 1.0 = base rate
+    base_token_rate = Column(Integer, nullable=False)  # tokens per kg/unit
+    description = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+# Default material multipliers
+DEFAULT_MATERIAL_MULTIPLIERS = {
+    "plastic": {"multiplier": 1.0, "base_rate": 10, "description": "Plastik - PET, HDPE, PVC, PP"},
+    "glass": {"multiplier": 1.2, "base_rate": 12, "description": "Cam - Yeşil, Beyaz, Kahve"},
+    "metal": {"multiplier": 1.5, "base_rate": 15, "description": "Metal - Alüminyum, Çelik, Teneke"},
+    "paper": {"multiplier": 0.8, "base_rate": 8, "description": "Kağıt - Karton, Gazete, Ofis"},
+    "electronic": {"multiplier": 2.0, "base_rate": 25, "description": "Elektronik - PCB, Pil, Telefon"},
+}

@@ -470,4 +470,65 @@ contract RecyclingRewards is AccessControl, ReentrancyGuard {
     function isQrHashUsed(string calldata qrHash) external view returns (bool) {
         return usedQrHashes[qrHash];
     }
+    
+    // ==============================
+    // RECYCLING FRAUD BAN (CRITICAL)
+    // ==============================
+    
+    bytes32 public constant RECYCLING_INSPECTOR_ROLE = keccak256("RECYCLING_INSPECTOR_ROLE");
+    
+    // Geri dönüşüm ödüllerinden kalıcı yasaklı kullanıcılar
+    mapping(address => bool) public recyclingBanned;
+    
+    event RecyclingFraudConfirmed(address indexed user, address confirmedBy, string reason);
+    event RecyclingBanApplied(address indexed user);
+    event RecyclingBanRemoved(address indexed user);
+    
+    /**
+     * @notice Geri dönüşüm fraud onayı - KALICI YASAK
+     * @param user Kullanıcı adresi
+     * @param reason Yasak sebebi
+     * @dev Fraud yapan kullanıcı bir daha token kazanamaz
+     */
+    function confirmRecyclingFraud(address user, string calldata reason) 
+        external 
+    {
+        require(user != address(0), "Invalid address");
+        require(
+            hasRole(RECYCLING_INSPECTOR_ROLE, msg.sender) ||
+            hasRole(MUNICIPALITY_STAFF_ROLE, msg.sender) ||
+            hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+            "Not authorized recycling inspector"
+        );
+        
+        recyclingBanned[user] = true;
+        isBlacklisted[user] = true;
+        userFraudCount[user]++;
+        
+        emit RecyclingFraudConfirmed(user, msg.sender, reason);
+        emit RecyclingBanApplied(user);
+    }
+    
+    /**
+     * @notice Yasak kaldır (sadece admin)
+     */
+    function removeRecyclingBan(address user) 
+        external 
+        onlyRole(DEFAULT_ADMIN_ROLE) 
+    {
+        require(user != address(0), "Invalid address");
+        require(recyclingBanned[user], "User not banned");
+        
+        recyclingBanned[user] = false;
+        
+        emit RecyclingBanRemoved(user);
+    }
+    
+    /**
+     * @notice Kullanıcının ödül alıp alamayacağını kontrol et
+     * @dev Reward fonksiyonlarında kullanılmalı
+     */
+    function canReceiveReward(address user) external view returns (bool) {
+        return !recyclingBanned[user] && !isBlacklisted[user];
+    }
 }

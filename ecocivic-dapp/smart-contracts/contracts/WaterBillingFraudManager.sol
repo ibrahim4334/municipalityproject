@@ -17,6 +17,8 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
     // ==============================
     bytes32 public constant FRAUD_DETECTOR_ROLE = keccak256("FRAUD_DETECTOR_ROLE");
     bytes32 public constant INSPECTOR_ROLE = keccak256("INSPECTOR_ROLE");
+    bytes32 public constant AI_VERIFIER_ROLE = keccak256("AI_VERIFIER_ROLE");           // AI fraud detection
+    bytes32 public constant RECYCLING_AUDITOR_ROLE = keccak256("RECYCLING_AUDITOR_ROLE"); // Recycling approval
     
     // ==============================
     // STATE VARIABLES
@@ -548,5 +550,250 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
         returns (uint256) 
     {
         return inspectorList.length;
+    }
+    
+    // ==============================
+    // CRITICAL ON-CHAIN STATE (A, B, C Requirements)
+    // ==============================
+    
+    // A) Deposit & Permanent Flag
+    mapping(address => uint256) public deposits;
+    mapping(address => bool) public permanentlyFlagged;
+    
+    // B) Inspection tracking
+    mapping(address => uint256) public inspectionCount;
+    mapping(address => uint256) public lastInspectionTimestamp;
+    
+    // C) Anomaly confirmation by user
+    mapping(address => bool) public anomalyConfirmedByUser;
+    mapping(address => uint256) public pendingBillId;
+    mapping(address => uint256) public pendingDebt;  // On-chain debt record
+    
+    // Events for new functions
+    event DepositSlashed(address indexed user, uint256 amount, bool isPartial);
+    event FullSlashApplied(address indexed user, uint256 amount, bool permanentFlag);
+    event PhysicalInspectionRecorded(
+        address indexed user, 
+        bool fraudDetected, 
+        uint256 realUsage, 
+        uint256 reportedUsage,
+        address inspector
+    );
+    event AnomalyConfirmed(address indexed user, bool confirmed, uint256 billId);
+    event DebtRecorded(address indexed user, uint256 debtAmount, uint256 interestAmount);
+    event PermanentFlagSet(address indexed user, string reason);
+    
+    /**
+     * @notice Deposit yatır (on-chain görünürlük)
+     */
+    function depositToContract(uint256 amount) external whenNotPaused {
+        require(amount > 0, "Amount must be > 0");
+        deposits[msg.sender] += amount;
+    }
+    
+    /**
+     * @notice AI fraud tespiti - kısmi kesinti (%50)
+     * @param user Kullanıcı adresi
+     * @param amount Kesilecek miktar
+     * @dev Sadece AI_VERIFIER veya FRAUD_DETECTOR çağırabilir
+     */
+    function slashDeposit(address user, uint256 amount) 
+        external 
+        validAddress(user)
+        whenNotPaused
+        nonReentrant
+    {
+        require(
+            hasRole(AI_VERIFIER_ROLE, msg.sender) || 
+            hasRole(FRAUD_DETECTOR_ROLE, msg.sender),
+            "Not authorized: need AI_VERIFIER or FRAUD_DETECTOR role"
+        );
+        
+        require(deposits[user] >= amount, "Insufficient deposit");
+        require(!permanentlyFlagged[user], "User already permanently flagged");
+        
+        deposits[user] -= amount;
+        
+        // Update fraud data
+        userFraudData[user].status = FraudStatus.AIDetected;
+        userFraudData[user].totalPenaltiesPaid += amount;
+        userFraudData[user].warningCount++;
+        
+        emit DepositSlashed(user, amount, true);
+        emit DepositPenalized(user, amount, "AI fraud detection - partial slash");
+    }
+    
+    /**
+     * @notice Fiziksel kontrolle onaylanmış fraud - tam kesinti (%100) + kalıcı flag
+     * @param user Kullanıcı adresi
+     * @dev Sadece INSPECTOR çağırabilir
+     */
+    function fullSlash(address user) 
+        external 
+        validAddress(user)
+        whenNotPaused
+        nonReentrant
+    {
+        require(
+            hasRole(INSPECTOR_ROLE, msg.sender) ||
+            inspectorWhitelist[msg.sender],
+            "Not authorized: need INSPECTOR role or whitelist"
+        );
+        
+        uint256 amount = deposits[user];
+        deposits[user] = 0;
+        
+        // Set permanent flag
+        permanentlyFlagged[user] = true;
+        
+        // Update fraud data
+        userFraudData[user].status = FraudStatus.Confirmed;
+        userFraudData[user].totalPenaltiesPaid += amount;
+        userFraudData[user].isBlacklisted = true;
+        
+        emit FullSlashApplied(user, amount, true);
+        emit PermanentFlagSet(user, "Physical inspection confirmed fraud");
+        emit UserBlacklisted(user);
+    }
+    
+    /**
+     * @notice Fiziksel sayaç kontrolü sonucu kaydet (on-chain)
+     * @param user Kullanıcı adresi
+     * @param fraudDetected Fraud bulundu mu
+     * @param realUsage Gerçek tüketim (m³)
+     * @dev Sadece INSPECTOR çağırabilir
+     * @dev Fraud varsa: deposit sıfırlanır, geriye dönük borç oluşur
+     */
+    function recordPhysicalInspectionFull(
+        address user,
+        bool fraudDetected,
+        uint256 realUsage,
+        uint256 reportedUsage
+    ) 
+        external 
+        validAddress(user)
+        whenNotPaused
+        nonReentrant
+    {
+        require(
+            hasRole(INSPECTOR_ROLE, msg.sender) ||
+            inspectorWhitelist[msg.sender],
+            "Not authorized inspector"
+        );
+        
+        // Update inspection tracking
+        inspectionCount[user]++;
+        lastInspectionTimestamp[user] = block.timestamp;
+        userFraudData[user].lastInspectionDate = block.timestamp;
+        userFraudData[user].nextInspectionDue = block.timestamp + INSPECTION_INTERVAL;
+        
+        if (fraudDetected) {
+            // Full slash
+            uint256 depositAmount = deposits[user];
+            deposits[user] = 0;
+            
+            // Calculate debt (on-chain record)
+            if (realUsage > reportedUsage) {
+                uint256 underreported = realUsage - reportedUsage;
+                uint256 unitPrice = 10; // TL/m³
+                uint256 baseDebt = underreported * unitPrice;
+                
+                // Interest calculation (5% monthly, assume 3 months)
+                uint256 interestRate = UNDERPAYMENT_INTEREST_BPS; // 500 = 5%
+                uint256 monthsLate = 3;
+                uint256 interest = (baseDebt * interestRate * monthsLate) / 10000;
+                
+                uint256 totalDebt = baseDebt + interest;
+                pendingDebt[user] += totalDebt;
+                
+                emit DebtRecorded(user, baseDebt, interest);
+            }
+            
+            // Set flags
+            permanentlyFlagged[user] = true;
+            userFraudData[user].status = FraudStatus.Confirmed;
+            userFraudData[user].isBlacklisted = true;
+            
+            // Check if user confirmed anomaly (heavier penalty consideration)
+            if (anomalyConfirmedByUser[user]) {
+                // User knowingly confirmed - already flagged, debt recorded
+                emit PermanentFlagSet(user, "User confirmed anomaly then fraud detected");
+            }
+            
+            emit FullSlashApplied(user, depositAmount, true);
+            emit UserBlacklisted(user);
+        } else {
+            // No fraud - clear status if under review
+            if (userFraudData[user].status == FraudStatus.AIDetected ||
+                userFraudData[user].status == FraudStatus.Warning) {
+                userFraudData[user].status = FraudStatus.None;
+            }
+        }
+        
+        emit PhysicalInspectionRecorded(user, fraudDetected, realUsage, reportedUsage, msg.sender);
+    }
+    
+    /**
+     * @notice Kullanıcı anomali onayını kaydet (%50+ düşüş onayı)
+     * @param user Kullanıcı adresi
+     * @param confirmed Kullanıcı onayladı mı
+     * @param billId İlgili fatura ID
+     * @dev Bu bilgi fiziksel kontrolde ceza ağırlığını belirler
+     */
+    function recordAnomalyConfirmation(
+        address user,
+        bool confirmed,
+        uint256 billId
+    ) 
+        external 
+        validAddress(user)
+    {
+        require(
+            hasRole(FRAUD_DETECTOR_ROLE, msg.sender) ||
+            hasRole(AI_VERIFIER_ROLE, msg.sender),
+            "Not authorized"
+        );
+        
+        anomalyConfirmedByUser[user] = confirmed;
+        pendingBillId[user] = billId;
+        
+        if (confirmed) {
+            userFraudData[user].status = FraudStatus.Warning;
+        }
+        
+        emit AnomalyConfirmed(user, confirmed, billId);
+    }
+    
+    /**
+     * @notice Kullanıcının borç durumu
+     */
+    function getUserDebtInfo(address user) 
+        external 
+        view 
+        returns (
+            uint256 depositAmount,
+            uint256 debtAmount,
+            bool isPermanentlyFlagged,
+            bool hasConfirmedAnomaly,
+            uint256 totalInspections
+        )
+    {
+        return (
+            deposits[user],
+            pendingDebt[user],
+            permanentlyFlagged[user],
+            anomalyConfirmedByUser[user],
+            inspectionCount[user]
+        );
+    }
+    
+    /**
+     * @notice Borç öde
+     */
+    function payDebt(uint256 amount) external whenNotPaused nonReentrant {
+        require(amount > 0, "Amount must be > 0");
+        require(pendingDebt[msg.sender] >= amount, "Amount exceeds debt");
+        
+        pendingDebt[msg.sender] -= amount;
     }
 }

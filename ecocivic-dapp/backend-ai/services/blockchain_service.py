@@ -259,6 +259,234 @@ class BlockchainService:
         except Exception as e:
             logger.error(f"Underpayment charge transaction failed: {e}")
             raise e
+    
+    # ==============================
+    # NEW AI/BACKEND INTEGRATION METHODS
+    # ==============================
+    
+    def submit_fraud_evidence(self, user_address: str, score: int) -> str:
+        """
+        AI tarafından fraud kanıtı gönder - WaterBilling.submitFraudEvidence
+        
+        Args:
+            user_address: Kullanıcı cüzdan adresi
+            score: Fraud skoru (0-100)
+            
+        Returns:
+            Transaction hash
+        """
+        try:
+            if not self.private_key:
+                raise ValueError("Wallet not configured")
+            
+            if not self.water_billing_address:
+                raise ValueError("Water billing address not configured")
+            
+            abi = [
+                {
+                    "inputs": [
+                        {"internalType": "address", "name": "user", "type": "address"},
+                        {"internalType": "uint256", "name": "score", "type": "uint256"}
+                    ],
+                    "name": "submitFraudEvidence",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            contract = self.w3.eth.contract(
+                address=self.water_billing_address, 
+                abi=abi
+            )
+            
+            tx = contract.functions.submitFraudEvidence(
+                user_address,
+                score
+            ).build_transaction({
+                'from': self.account.address,
+                'nonce': self.w3.eth.get_transaction_count(self.account.address),
+                'gas': 500000,
+                'gasPrice': self.w3.eth.gas_price
+            })
+            
+            signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            
+            logger.info(f"Fraud evidence submitted for {user_address}: score={score}")
+            return self.w3.to_hex(tx_hash)
+            
+        except Exception as e:
+            logger.error(f"Submit fraud evidence failed: {e}")
+            raise e
+    
+    def record_physical_inspection(self, user_address: str, is_fraud: bool) -> str:
+        """
+        Fiziksel kontrol sonucunu kaydet - WaterBilling.recordPhysicalInspection
+        
+        Args:
+            user_address: Kullanıcı cüzdan adresi
+            is_fraud: Fraud bulundu mu
+            
+        Returns:
+            Transaction hash
+        """
+        try:
+            if not self.private_key:
+                raise ValueError("Wallet not configured")
+            
+            if not self.water_billing_address:
+                raise ValueError("Water billing address not configured")
+            
+            abi = [
+                {
+                    "inputs": [
+                        {"internalType": "address", "name": "user", "type": "address"},
+                        {"internalType": "bool", "name": "isFraud", "type": "bool"}
+                    ],
+                    "name": "recordPhysicalInspection",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            contract = self.w3.eth.contract(
+                address=self.water_billing_address, 
+                abi=abi
+            )
+            
+            tx = contract.functions.recordPhysicalInspection(
+                user_address,
+                is_fraud
+            ).build_transaction({
+                'from': self.account.address,
+                'nonce': self.w3.eth.get_transaction_count(self.account.address),
+                'gas': 500000,
+                'gasPrice': self.w3.eth.gas_price
+            })
+            
+            signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            
+            logger.info(f"Physical inspection recorded for {user_address}: fraud={is_fraud}")
+            return self.w3.to_hex(tx_hash)
+            
+        except Exception as e:
+            logger.error(f"Record physical inspection failed: {e}")
+            raise e
+    
+    def apply_interest_penalty(self, user_address: str, correct_usage: int) -> str:
+        """
+        Faiz cezası uygula - WaterBilling.applyInterestPenalty
+        
+        Args:
+            user_address: Kullanıcı cüzdan adresi  
+            correct_usage: Doğru tüketim miktarı (m³)
+            
+        Returns:
+            Transaction hash
+        """
+        try:
+            if not self.private_key:
+                raise ValueError("Wallet not configured")
+            
+            if not self.water_billing_address:
+                raise ValueError("Water billing address not configured")
+            
+            abi = [
+                {
+                    "inputs": [
+                        {"internalType": "address", "name": "user", "type": "address"},
+                        {"internalType": "uint256", "name": "correctUsage", "type": "uint256"}
+                    ],
+                    "name": "applyInterestPenalty",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            contract = self.w3.eth.contract(
+                address=self.water_billing_address, 
+                abi=abi
+            )
+            
+            tx = contract.functions.applyInterestPenalty(
+                user_address,
+                correct_usage
+            ).build_transaction({
+                'from': self.account.address,
+                'nonce': self.w3.eth.get_transaction_count(self.account.address),
+                'gas': 500000,
+                'gasPrice': self.w3.eth.gas_price
+            })
+            
+            signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            
+            logger.info(f"Interest penalty applied for {user_address}: usage={correct_usage}")
+            return self.w3.to_hex(tx_hash)
+            
+        except Exception as e:
+            logger.error(f"Apply interest penalty failed: {e}")
+            raise e
+    
+    def confirm_user_reading(self, user_address: str, confirmed: bool) -> str:
+        """
+        Kullanıcı onayını kaydet - WaterBilling.confirmUserReading
+        
+        Args:
+            user_address: Kullanıcı cüzdan adresi
+            confirmed: Kullanıcı onayladı mı
+            
+        Returns:
+            Transaction hash
+        """
+        try:
+            if not self.private_key:
+                raise ValueError("Wallet not configured")
+            
+            if not self.water_billing_address:
+                raise ValueError("Water billing address not configured")
+            
+            abi = [
+                {
+                    "inputs": [
+                        {"internalType": "address", "name": "user", "type": "address"},
+                        {"internalType": "bool", "name": "confirmed", "type": "bool"}
+                    ],
+                    "name": "confirmUserReading",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            contract = self.w3.eth.contract(
+                address=self.water_billing_address, 
+                abi=abi
+            )
+            
+            tx = contract.functions.confirmUserReading(
+                user_address,
+                confirmed
+            ).build_transaction({
+                'from': self.account.address,
+                'nonce': self.w3.eth.get_transaction_count(self.account.address),
+                'gas': 300000,
+                'gasPrice': self.w3.eth.gas_price
+            })
+            
+            signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            
+            logger.info(f"User reading confirmed for {user_address}: confirmed={confirmed}")
+            return self.w3.to_hex(tx_hash)
+            
+        except Exception as e:
+            logger.error(f"Confirm user reading failed: {e}")
+            raise e
 
 # Global instance
 blockchain_service = BlockchainService()

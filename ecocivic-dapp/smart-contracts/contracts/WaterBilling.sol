@@ -599,4 +599,152 @@ contract WaterBilling is AccessControl, ReentrancyGuard {
         
         emit BillPaid(msg.sender, amount);
     }
+    
+    // ==============================
+    // AI / BACKEND INTEGRATION FUNCTIONS
+    // ==============================
+    
+    // Events for new functions
+    event FraudEvidenceSubmitted(address indexed user, uint256 score, address submittedBy);
+    event PhysicalInspectionRecorded(address indexed user, bool isFraud, address inspector);
+    event InterestPenaltyApplied(address indexed user, uint256 originalAmount, uint256 interestAmount, uint256 totalAmount);
+    event UserConfirmationRequested(address indexed user, uint256 currentReading, uint256 avgConsumption);
+    event UserConfirmationReceived(address indexed user, bool confirmed);
+    
+    /**
+     * @notice AI Backend tarafından fraud kanıtı gönder
+     * @param user Kullanıcı adresi
+     * @param score Fraud skoru (0-100)
+     * @dev SERVICE_OPERATOR_ROLE (AI Backend) tarafından çağrılır
+     */
+    function submitFraudEvidence(address user, uint256 score) 
+        external 
+        onlyRole(SERVICE_OPERATOR_ROLE)
+        validAddress(user)
+    {
+        require(score <= 100, "Score must be 0-100");
+        
+        if (score >= 70) {
+            // Critical - otomatik ceza
+            uint256 penalty = calculatePenalty(user, FRAUD_PENALTY_PERCENT);
+            if (penalty > 0 && userDeposits[user] >= penalty) {
+                userDeposits[user] -= penalty;
+                _updateUserStatus(user, UserStatus.UnderReview);
+                emit FraudPenaltyApplied(user, penalty, "AI fraud score critical");
+            }
+        } else if (score >= 50) {
+            // High - incelemeye al
+            _updateUserStatus(user, UserStatus.UnderReview);
+        }
+        
+        emit FraudEvidenceSubmitted(user, score, msg.sender);
+    }
+    
+    /**
+     * @notice Fiziksel kontrol sonucunu kaydet
+     * @param user Kullanıcı adresi  
+     * @param isFraud Fraud bulundu mu
+     * @dev MUNICIPALITY_STAFF_ROLE veya FRAUD_MANAGER_ROLE tarafından çağrılır
+     */
+    function recordPhysicalInspection(address user, bool isFraud) 
+        external 
+        validAddress(user)
+    {
+        require(
+            hasRole(MUNICIPALITY_STAFF_ROLE, msg.sender) || 
+            hasRole(FRAUD_MANAGER_ROLE, msg.sender),
+            "Not authorized inspector"
+        );
+        
+        if (isFraud) {
+            // Tüm depozitoyu kes
+            uint256 penalty = userDeposits[user];
+            userDeposits[user] = 0;
+            
+            _updateUserStatus(user, UserStatus.Suspended);
+            
+            emit FraudPenaltyApplied(user, penalty, "Physical inspection fraud");
+        } else {
+            // Fraud yok, aktife çevir
+            if (userStatus[user] == UserStatus.UnderReview) {
+                _updateUserStatus(user, UserStatus.Active);
+            }
+        }
+        
+        emit PhysicalInspectionRecorded(user, isFraud, msg.sender);
+    }
+    
+    /**
+     * @notice Doğru tüketim üzerinden faiz cezası uygula
+     * @param user Kullanıcı adresi
+     * @param correctUsage Doğru tüketim miktarı (m³)
+     * @dev FRAUD_MANAGER_ROLE tarafından çağrılır
+     */
+    function applyInterestPenalty(address user, uint256 correctUsage) 
+        external 
+        onlyRole(FRAUD_MANAGER_ROLE)
+        validAddress(user)
+    {
+        require(correctUsage > 0, "Usage must be > 0");
+        
+        // Birim fiyat (varsayım: 10 TL/m³)
+        uint256 unitPrice = 10;
+        uint256 baseAmount = correctUsage * unitPrice;
+        
+        // Faiz hesapla (varsayım: 3 ay gecikme)
+        uint256 monthsLate = 3;
+        uint256 interestAmount = calculateInterest(baseAmount, monthsLate);
+        
+        uint256 totalAmount = baseAmount + interestAmount;
+        
+        outstandingBills[user] += totalAmount;
+        
+        emit InterestPenaltyApplied(user, baseAmount, interestAmount, totalAmount);
+    }
+    
+    /**
+     * @notice Kullanıcıdan onay iste (%50+ düşüş durumunda)
+     * @param user Kullanıcı adresi
+     * @return Mevcut onay durumu
+     * @dev SERVICE_OPERATOR_ROLE tarafından çağrılır
+     */
+    function requestUserConfirmation(address user) 
+        external 
+        onlyRole(SERVICE_OPERATOR_ROLE)
+        validAddress(user)
+        returns (bool)
+    {
+        _updateUserStatus(user, UserStatus.PendingConfirmation);
+        pendingConfirmations[user] = true;
+        
+        uint256 avgConsumption = _getAverageConsumption(user);
+        
+        emit UserConfirmationRequested(user, lastReading[user], avgConsumption);
+        
+        return true;
+    }
+    
+    /**
+     * @notice Kullanıcı onayını kaydet
+     * @param user Kullanıcı adresi
+     * @param confirmed Kullanıcı onayladı mı
+     */
+    function confirmUserReading(address user, bool confirmed) 
+        external 
+        onlyRole(SERVICE_OPERATOR_ROLE)
+        validAddress(user)
+    {
+        require(pendingConfirmations[user], "No pending confirmation");
+        
+        pendingConfirmations[user] = false;
+        
+        if (confirmed) {
+            _updateUserStatus(user, UserStatus.Active);
+        } else {
+            // Onaylamadı - incelemeye al
+            _updateUserStatus(user, UserStatus.UnderReview);
+        }
+        
+        emit UserConfirmationReceived(user, confirmed);
+    }
 }
