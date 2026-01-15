@@ -5,7 +5,8 @@
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.20-363636?logo=solidity)](https://soliditylang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://reactjs.org/)
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python)](https://python.org/)
-[![Polygon](https://img.shields.io/badge/Polygon-Mumbai-8247E5?logo=polygon)](https://polygon.technology/)
+[![Flask](https://img.shields.io/badge/Flask-3.0-000000?logo=flask)](https://flask.palletsprojects.com/)
+[![Material-UI](https://img.shields.io/badge/MUI-5.0-007FFF?logo=mui)](https://mui.com/)
 
 ---
 
@@ -14,12 +15,13 @@
 - [🎯 Proje Özeti](#-proje-özeti)
 - [✨ Özellikler](#-özellikler)
 - [🏗️ Mimari](#️-mimari)
-- [🚀 Kurulum](#-kurulum)
+- [🚀 Kurulum ve Çalıştırma](#-kurulum-ve-çalıştırma)
+- [👥 Kullanıcı Rolleri](#-kullanıcı-rolleri)
 - [📦 Smart Contracts](#-smart-contracts)
 - [🤖 Backend AI](#-backend-ai)
 - [💻 Frontend](#-frontend)
+- [🧪 Test Verileri](#-test-verileri)
 - [🔐 Güvenlik](#-güvenlik)
-- [📊 Tokenomics](#-tokenomics)
 
 ---
 
@@ -32,7 +34,7 @@ EcoCivic DApp, belediyelerin vatandaşlarla etkileşimini dijitalleştiren, şef
 | Hedef | Açıklama |
 |-------|----------|
 | **Şeffaflık** | Tüm işlemler blockchain üzerinde kayıtlı |
-| **Fraud Önleme** | AI destekli anomali tespiti ve ceza sistemi |
+| **Fraud Önleme** | AI destekli anomali tespiti + 2 hak sistemi |
 | **Teşvik Sistemi** | BELT token ile vatandaş ödüllendirme |
 | **Sürdürülebilirlik** | Geri dönüşüm ve düşük tüketim teşvikleri |
 
@@ -43,76 +45,62 @@ EcoCivic DApp, belediyelerin vatandaşlarla etkileşimini dijitalleştiren, şef
 ### 💧 Su Faturası Sistemi
 
 ```
-📸 Kamera ile Sayaç Fotoğrafı
+📸 Su Sayacı Fotoğrafı Yükle
       ↓
 🤖 AI-OCR Okuma & Doğrulama
       ↓
-📊 %50+ Düşüş Kontrolü → ⚠️ Onay Gerekir
+📊 %50+ Düşüş Kontrolü → ⚠️ Kullanıcı Onayı Gerekir
+      ↓
+🔍 Admin/Personel Fiziksel Kontrol
       ↓
 ✅ Blockchain Kayıt → 🪙 BELT Ödül
 ```
 
-- **Kamera-Only Capture**: Galeri yüklemesi devre dışı, gerçek zamanlı fotoğraf zorunlu
-- **EXIF Metadata Doğrulama**: Timestamp, GPS, düzenleme yazılımı kontrolü
-- **Tüketim Drop Uyarısı**: %50+ düşüşte kullanıcı onayı gerekir
-- **AI Fraud Tespiti**: OCR anomali, sayaç değişikliği, trend analizi
+**Öne Çıkan Özellikler:**
+- **Fotoğraf Hash Saklama**: Fotoğrafın kendisi değil, SHA256 hash'i blockchain'de saklanır
+- **5 Aylık Veri Geçmişi**: Her vatandaş için son 5 ay su tüketim verisi tutulur
+- **AI Anomali Tespiti**: %50+ düşüşlerde otomatik uyarı sistemi
+- **Admin Onay/Fraud**: Personel fiziksel kontrol sonrası onay veya fraud işaretleme
 
 ### ♻️ Geri Dönüşüm Ödül Sistemi
 
-| Atık Türü | Token/Birim | Alt Kategoriler |
-|-----------|-------------|-----------------|
-| 🥤 Plastik | 10 BELT/kg | PET, HDPE, PVC, PP |
-| 🫙 Cam | 12 BELT/kg | Yeşil, Beyaz, Kahve |
-| 🥫 Metal | 15 BELT/kg | Alüminyum, Çelik, Teneke |
-| 📦 Kağıt | 8 BELT/kg | Karton, Gazete, Ofis |
-| 📱 Elektronik | 25 BELT/adet | PCB, Pil, Telefon |
+| Atık Türü | Token/Birim | Renk Kodu |
+|-----------|-------------|-----------|
+| 🧴 Plastik | 10 BELT/kg | 🔵 Mavi |
+| 🥛 Cam | 12 BELT/kg | 🟢 Yeşil |
+| 🔩 Metal | 15 BELT/kg | 🟠 Turuncu |
+| 📄 Kağıt/Karton | 8 BELT/kg | 🟣 Mor |
+| 📱 Elektronik | 25 BELT/adet | 🔴 Kırmızı |
 
-- **QR Kod Tarama**: Geri dönüşüm noktalarında hızlı bildirim
-- **Personel Onayı Zorunlu**: Fraud önleme için staff approval
-- **Blacklist Sistemi**: 3 fraud = kalıcı engelleme
+**QR Kod Sistemi:**
+- **Çoklu Atık Türü Desteği**: Tek formda tüm türleri beyan edin
+- **3 Saatlik QR Geçerliliği**: Countdown timer ile süre takibi
+- **Süresi Dolan QR Otomatik İptal**: Yeni QR oluşturma butonu
+- **Personel Onayı Zorunlu**: QR okutulduktan sonra staff approval
 
-### 🔍 Fraud Tespit & Ceza Sistemi
+### 🚨 Fraud Tespit & 2 Hak Sistemi
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    FRAUD TESPİT                     │
+│                  FRAUD HAK SİSTEMİ                  │
 ├─────────────────────────────────────────────────────┤
-│  AI Tespit              │  Fiziksel Kontrol         │
-│  ─────────              │  ─────────────────        │
-│  • OCR Anomali          │  • 6 Aylık Periyodik      │
-│  • %50+ Düşüş           │  • Inspector Whitelist    │
-│  • Trend Analizi        │  • Gerçek Okuma Karşıl.   │
-│                         │                           │
-│  📉 %50 Ceza            │  💀 %100 Ceza + Faiz     │
+│  ♻️ Geri Dönüşüm: 2 Hak    │  💧 Su Sayacı: 2 Hak  │
+│  ─────────────────────     │  ──────────────────   │
+│  • Her fraud = 1 hak düşer │  • AI uyarısı         │
+│  • 0 hak = Kara liste      │  • Fiziksel kontrol   │
+│  • Admin onay/red          │  • Admin onay/fraud   │
 └─────────────────────────────────────────────────────┘
 ```
 
-**Ceza Oranları:**
-- AI Tespit: Depozito'nun %50'si kesilir
-- Fiziksel Kontrol Fraud: %100 depozito + %5/ay faiz
-- Kullanıcı askıya alınır (Suspended)
+### 🎭 3 Kullanıcı Ekranı Geçişi (Demo Modu)
 
-### 📊 Risk Skor Kartı
+Dashboard'da toggle buton ile roller arası geçiş:
 
-Kullanıcı güvenilirlik puanı 4 kategoride hesaplanır:
-
-| Kategori | Ağırlık | Değerlendirme |
-|----------|---------|---------------|
-| Tüketim Davranışı | 35% | Tutarlılık, uyarı sayısı |
-| Fraud Geçmişi | 30% | AI/fiziksel fraud, cezalar |
-| Doğrulama Kalitesi | 20% | Fotoğraf yaşı, GPS, düzenleme |
-| Hesap Durumu | 15% | Hesap yaşı, aktivite |
-
-### 🪙 Token Staking
-
-Bonus faiz kazanmak için BELT token stake edin:
-
-| Tier | Min BELT | Bonus APY | Lock Süresi |
-|------|----------|-----------|-------------|
-| 🥉 Bronze | 100 | +2% | 30 gün |
-| 🥈 Silver | 500 | +5% | 90 gün |
-| 🥇 Gold | 2,000 | +10% | 180 gün |
-| 💎 Platinum | 10,000 | +15% | 365 gün |
+| Rol | Ekran | Yetkiler |
+|-----|-------|----------|
+| 👤 **Vatandaş** | Ana Panel | Su sayacı yükle, Geri dönüşüm beyanı ver |
+| 🛡️ **Admin** | Yönetim Paneli | Onay/Red, Fraud işaretleme, Parametreler |
+| 👷 **Personel** | Kontrol Paneli | Fiziksel kontrol, QR onayı, Fraud tespiti |
 
 ---
 
@@ -121,126 +109,162 @@ Bonus faiz kazanmak için BELT token stake edin:
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                        FRONTEND                               │
-│  React + Vite + wagmi + ethers.js                            │
-│  ├── WaterMeterUpload (Camera Capture)                       │
-│  ├── QRScanner (Recycling)                                   │
-│  └── RiskScoreDashboard                                      │
+│  React 18 + Vite + Material-UI + ethers.js                   │
+│  ├── Dashboard.jsx (Rol Switcher entegre)                    │
+│  ├── RecyclingDeclarationForm.jsx (5 atık türü)              │
+│  ├── RecyclingQRWithTimer.jsx (3 saat countdown)             │
+│  ├── UserRoleSwitcher.jsx (Demo toggle)                      │
+│  └── StaffDashboard.jsx (Onay/Fraud butonları)               │
+│                                                               │
+│  📍 http://localhost:3000                                    │
 └────────────────────────┬─────────────────────────────────────┘
                          │ REST API
 ┌────────────────────────▼─────────────────────────────────────┐
 │                      BACKEND-AI                               │
-│  Flask + SQLAlchemy + Web3.py                                │
-│  ├── fraud_detection/                                        │
-│  │   ├── usage_anomaly.py (Z-score, Trend)                  │
-│  │   ├── image_metadata_check.py (EXIF)                     │
-│  │   └── ml_fraud_detector.py (Holt's Linear)               │
-│  ├── inspections/                                            │
-│  │   └── periodic_physical_inspection.py                    │
-│  ├── services/                                               │
-│  │   ├── risk_score_service.py                              │
-│  │   ├── pdf_report_service.py                              │
-│  │   └── blockchain_service.py                              │
-│  └── ai/ocr.py (OpenAI Vision)                              │
+│  Flask 3.0 + SQLAlchemy + Web3.py                            │
+│  ├── services/                                                │
+│  │   ├── recycling_declaration_service.py                    │
+│  │   ├── fraud_detection.py                                  │
+│  │   ├── inspection_service.py                               │
+│  │   └── blockchain_service.py                               │
+│  ├── database/                                                │
+│  │   ├── models.py (User, WaterMeterReading, RecyclingDecl.) │
+│  │   └── seed_data.py (Test verileri)                        │
+│  └── ai/ocr.py (OpenAI Vision)                               │
+│                                                               │
+│  📍 http://localhost:8000                                    │
 └────────────────────────┬─────────────────────────────────────┘
                          │ Web3 RPC
 ┌────────────────────────▼─────────────────────────────────────┐
 │                   SMART CONTRACTS                             │
 │  Solidity 0.8.20 + Hardhat + OpenZeppelin                    │
-│  ├── BELTToken.sol (ERC20 + Mintable)                       │
-│  ├── WaterBilling.sol (Readings + Penalties)                 │
-│  ├── WaterBillingFraudManager.sol (Fraud + Inspections)     │
-│  ├── RecyclingRewards.sol (5 Waste Types)                   │
-│  ├── TokenStaking.sol (4 Tiers + Bonus)                     │
-│  └── EcoCivicDeposit.sol (Aave Yield)                       │
+│  ├── BELTToken.sol (ERC20 + Mintable)                        │
+│  ├── WaterBillingFraudManager.sol (Photo Hash + Fraud)       │
+│  ├── RecyclingRewards.sol (5 Waste Types + 2 Hak Sistemi)    │
+│  ├── TokenStaking.sol (4 Tier Bonus)                         │
+│  └── EcoCivicDeposit.sol (Depozito Yönetimi)                 │
+│                                                               │
+│  📍 Hardhat Local: http://localhost:8545                     │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🚀 Kurulum
+## 🚀 Kurulum ve Çalıştırma
 
 ### Gereksinimler
 
 - Node.js 18+
 - Python 3.11+
-- PostgreSQL 14+
-- MetaMask veya WalletConnect destekli cüzdan
+- MySQL 8.0+ (veya PostgreSQL 14+)
+- MetaMask tarayıcı uzantısı
 
-### 1. Repository Klonla
+### Adım 1: Repository Klonla
 
 ```bash
 git clone https://github.com/ibrahim4334/municipalityproject.git
 cd municipalityproject/ecocivic-dapp
 ```
 
-### 2. Smart Contracts
+### Adım 2: Smart Contracts (Opsiyonel - Local Blockchain)
 
 ```bash
 cd smart-contracts
 npm install
-cp .env.example .env
-# .env dosyasını düzenle
 
-# Local test
+# Local Hardhat node başlat (ayrı terminal)
 npx hardhat node
-npx hardhat run scripts/deploy.js --network localhost
 
-# Polygon Mumbai
-npx hardhat run scripts/deploy.js --network polygon_mumbai
+# Deploy et
+npx hardhat run scripts/deploy.js --network localhost
 ```
 
-### 3. Backend AI
+### Adım 3: Backend API
 
 ```bash
 cd backend-ai
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+venv\Scripts\activate  # Windows
+# source venv/bin/activate  # Linux/Mac
+
 pip install -r requirements.txt
-pip install reportlab  # PDF export için
 
-cp .env.example .env
 # .env dosyasını düzenle
+cp .env.example .env
 
+# Veritabanı tablolarını oluştur ve test verilerini yükle
+python -c "from database.db import engine, Base; from database.models import *; Base.metadata.drop_all(engine); Base.metadata.create_all(engine)"
+python -c "from database.seed_data import seed_all; seed_all()"
+
+# Backend'i başlat
 python app.py
 ```
 
-### 4. Frontend
+✅ Backend başarılı: `http://localhost:8000`
+
+### Adım 4: Frontend
 
 ```bash
 cd frontend
 npm install
-npm install html5-qrcode  # QR Scanner için
 
-cp .env.example .env
 # .env dosyasını düzenle
+cp .env.example .env
 
+# Frontend'i başlat
 npm run dev
 ```
+
+✅ Frontend başarılı: `http://localhost:3000`
+
+### Adım 5: MetaMask Bağlantısı
+
+1. Chrome'da MetaMask uzantısını aç
+2. Hardhat Local ağını ekle:
+   - Ağ Adı: `Hardhat Local`
+   - RPC URL: `http://127.0.0.1:8545`
+   - Chain ID: `31337`
+   - Symbol: `ETH`
+3. `http://localhost:3000` adresine git
+4. "Connect Wallet" butonuna tıkla
+
+---
+
+## 👥 Kullanıcı Rolleri
+
+### Test Cüzdan Adresleri (Seed Data)
+
+| Rol | İsim | Cüzdan Adresi |
+|-----|------|---------------|
+| 👤 Vatandaş 1 | Ahmet Yılmaz | `0xCitizen00100000000000000000000000000001` |
+| 👤 Vatandaş 2 | Ayşe Demir | `0xCitizen00200000000000000000000000000002` |
+| 🚨 Fraud Vatandaş | Mehmet Şüpheli | `0xCitizenFraud0000000000000000000000003` |
+| 👷 Personel | Fatma Kontrol | `0xStaff00100000000000000000000000000000001` |
+| 🤖 AI Operatör | AI Operator | `0xOperator001000000000000000000000000001` |
+| 🛡️ Admin | Yönetici Admin | `0xAdmin00100000000000000000000000000000001` |
 
 ---
 
 ## 📦 Smart Contracts
 
-### Kontrat Adresleri (Deploy sonrası güncellenecek)
+### Kontrat Yapısı
 
-| Kontrat | Adres |
-|---------|-------|
-| BELTToken | `0x...` |
-| WaterBilling | `0x...` |
-| WaterBillingFraudManager | `0x...` |
-| RecyclingRewards | `0x...` |
-| TokenStaking | `0x...` |
-| EcoCivicDeposit | `0x...` |
+| Kontrat | Açıklama |
+|---------|----------|
+| `BELTToken.sol` | ERC20 token, mint/burn |
+| `WaterBillingFraudManager.sol` | Fraud tespiti, photo hash saklama |
+| `RecyclingRewards.sol` | 5 atık türü, 2 hak sistemi |
+| `TokenStaking.sol` | 4 tier staking bonus |
+| `EcoCivicDeposit.sol` | Depozito ve ceza yönetimi |
 
-### Roller
+### Roller (AccessControl)
 
 ```solidity
 DEFAULT_ADMIN_ROLE      // Governance, parametre güncelleme
 SERVICE_OPERATOR_ROLE   // AI Backend, OCR işlemleri
-MUNICIPALITY_STAFF_ROLE // 6 aylık kontrol, fraud doğrulama
+MUNICIPALITY_STAFF_ROLE // Fiziksel kontrol, fraud doğrulama
 FRAUD_MANAGER_ROLE      // Ceza uygulama
 INSPECTOR_ROLE          // Fiziksel kontrol
-ORACLE_ROLE             // Dış veri (GPS, fiyatlar)
 ```
 
 ---
@@ -252,69 +276,83 @@ ORACLE_ROLE             // Dış veri (GPS, fiyatlar)
 | Endpoint | Method | Açıklama |
 |----------|--------|----------|
 | `/api/water/validate` | POST | Sayaç fotoğrafı doğrula |
-| `/api/recycling/submit` | POST | Geri dönüşüm bildirimi |
-| `/api/recycling/generate-qr` | POST | QR kod oluştur |
-| `/api/fraud/status/<wallet>` | GET | Fraud durumu sorgula |
-| `/api/risk-score/<wallet>` | GET | Risk skor kartı |
-| `/api/inspection/schedule` | POST | Kontrol planla |
-| `/api/inspection/complete` | POST | Kontrol tamamla |
+| `/api/recycling/declare` | POST | Çoklu atık beyanı oluştur |
+| `/api/recycling/declarations/pending` | GET | Bekleyen beyanları listele |
+| `/api/recycling/declarations/{id}/approve` | POST | Beyanı onayla |
+| `/api/recycling/declarations/{id}/fraud` | POST | Fraud işaretle |
+| `/api/fraud/status/{wallet}` | GET | Fraud durumu sorgula |
+| `/api/user/fraud-warnings/{wallet}` | GET | Kalan hak sayısı |
 | `/api/inspection/pending` | GET | Bekleyen kontroller |
-| `/api/reports/inspection/<id>` | GET | PDF rapor |
-
-### Fraud Detection Modülleri
-
-```
-fraud_detection/
-├── usage_anomaly.py      # Z-score, trend analizi
-├── image_metadata_check.py # EXIF doğrulama
-└── ml_fraud_detector.py  # Holt's Linear, tahmin
-```
+| `/api/health` | GET | API sağlık kontrolü |
 
 ---
 
 ## 💻 Frontend
 
+### Sayfa Yapısı
+
+| Sayfa | Route | Açıklama |
+|-------|-------|----------|
+| Ana Sayfa | `/` | Proje tanıtımı |
+| Dashboard | `/dashboard` | Rol switcher, bakiye, işlemler |
+| Geri Dönüşüm | `/recycling` | Beyan formu, QR oluşturma |
+| Su Sayacı | `/water` | Fotoğraf yükleme |
+| Admin | `/admin` | Personel paneli |
+
 ### Bileşenler
 
 | Bileşen | Açıklama |
 |---------|----------|
-| `WaterMeterUpload.jsx` | Kamera capture, drop uyarısı |
-| `QRScanner.jsx` | Geri dönüşüm QR tarama |
-| `RiskScoreDashboard.jsx` | Risk skor göstergesi |
-| `WalletConnect.jsx` | Cüzdan bağlantısı |
+| `UserRoleSwitcher.jsx` | Demo rol toggle (Vatandaş/Admin/Personel) |
+| `RecyclingDeclarationForm.jsx` | 5 atık türü formu |
+| `RecyclingQRWithTimer.jsx` | 3 saat countdown QR |
+| `StaffDashboard.jsx` | Onay/Fraud panel |
+| `WaterMeterUpload.jsx` | Fotoğraf yükleme |
+| `FraudWarningModal.jsx` | Fraud uyarı modalı |
 
-### Sayfalar
+---
 
-- `/` - Ana sayfa, dashboard
-- `/water` - Su sayacı okuma
-- `/recycling` - Geri dönüşüm
-- `/staking` - Token staking
+## 🧪 Test Verileri
+
+Seed data ile oluşturulan örnek veriler:
+
+### Su Sayacı Okumaları (5 Aylık)
+
+| Vatandaş | Tüketim Trendi | Durum |
+|----------|----------------|-------|
+| Citizen1 | 15→17→16→18→19 m³ | ✅ Normal |
+| Citizen2 | 20→22→21→8→9 m³ | ⚠️ %60 düşüş |
+| Fraud | 25→24→5→3→2 m³ | 🚨 Fraud tespiti |
+
+### Geri Dönüşüm Beyanları (3 Farklı Zaman)
+
+| Vatandaş | Beyan Sayısı | Durum |
+|----------|--------------|-------|
+| Citizen1 | 3 onaylı | ✅ Normal |
+| Citizen2 | 1 onaylı, 2 bekliyor | ⏳ Beklemede |
+| Fraud | 2 fraud, 1 bekliyor | 🚨 Fraud |
 
 ---
 
 ## 🔐 Güvenlik
 
 ### Smart Contract
-
 - ✅ OpenZeppelin AccessControl
 - ✅ ReentrancyGuard
 - ✅ Pausable pattern
 - ✅ Input validation
 
 ### Backend
-
-- ✅ JWT Authentication
 - ✅ Role-based middleware
 - ✅ CORS configuration
+- ✅ Rate limiting
 - ✅ Input sanitization
 
 ### Fraud Prevention
-
-- ✅ Real-time camera only
-- ✅ EXIF metadata validation
-- ✅ 5 dakika timestamp kontrolü
-- ✅ GPS verification
-- ✅ Editing software detection
+- ✅ Fotoğraf hash blockchain'de saklanır
+- ✅ 2 hak sistemi (0 hak = kara liste)
+- ✅ 3 saatlik QR geçerlilik süresi
+- ✅ Admin onay zorunluluğu
 
 ---
 
@@ -342,18 +380,13 @@ Kullanım: Ödül, staking, governance
          │
          ▼
 ┌─────────────────┐      ┌─────────────────┐
-│  Staking        │──────│  5-20% APY      │
-└─────────────────┘      └─────────────────┘
-         │
-         ▼
-┌─────────────────┐      ┌─────────────────┐
-│  Fraud Ceza     │──────│  50-100% Burn   │
+│  Fraud Ceza     │──────│  Hak düşürme    │
 └─────────────────┘      └─────────────────┘
 ```
 
 ---
 
-## 🧪 Test
+## 🧪 Test Komutları
 
 ```bash
 # Smart Contract Tests
@@ -362,8 +395,10 @@ npx hardhat test
 
 # Specific tests
 npx hardhat test test/testFraudPenalties.js
-npx hardhat test test/testPhysicalInspection.js
-npx hardhat test test/testRealTimePhoto.js
+npx hardhat test test/testRecyclingRewards.js
+
+# Backend health check
+curl http://localhost:8000/api/health
 ```
 
 ---
