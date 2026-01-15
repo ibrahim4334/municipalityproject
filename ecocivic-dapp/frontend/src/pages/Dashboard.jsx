@@ -1,12 +1,23 @@
 import { useState, useEffect } from 'react';
-import { Typography, Grid, Paper, Card, CardContent, Button, Divider, Box, Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, Alert } from '@mui/material'
+import { useNavigate } from 'react-router-dom';
+import { Typography, Grid, Paper, Card, CardContent, Button, Divider, Box, Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, Alert, Chip } from '@mui/material'
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import RecyclingIcon from '@mui/icons-material/Recycling';
+import WaterDropIcon from '@mui/icons-material/WaterDrop';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import QrCodeIcon from '@mui/icons-material/QrCode';
+import WarningIcon from '@mui/icons-material/Warning';
 import { useWallet } from '../context/WalletContext';
 import { validateWaterMeter } from '../services/api';
 import { getBeltBalance } from '../services/contractService';
+import UserRoleSwitcher from '../components/UserRoleSwitcher';
+import StaffDashboard from '../components/StaffDashboard';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 function Dashboard() {
+    const navigate = useNavigate();
     const { account, signer } = useWallet();
     const [beltBalance, setBeltBalance] = useState('0');
     const [openUpload, setOpenUpload] = useState(false);
@@ -14,16 +25,44 @@ function Dashboard() {
     const [uploading, setUploading] = useState(false);
     const [uploadResult, setUploadResult] = useState(null);
     const [error, setError] = useState(null);
+    // Rol yönetimi
+    const [currentRole, setCurrentRole] = useState('citizen');
+    // Fraud uyarıları
+    const [fraudWarnings, setFraudWarnings] = useState({ recycling: 2, water: 2 });
+    const [hasPendingFraud, setHasPendingFraud] = useState(false);
 
     useEffect(() => {
         if (account && signer) {
             loadBalance();
+            loadFraudStatus();
         }
     }, [account, signer]);
 
     const loadBalance = async () => {
-        const bal = await getBeltBalance(signer, account);
-        setBeltBalance(bal);
+        try {
+            const bal = await getBeltBalance(signer, account);
+            setBeltBalance(bal);
+        } catch (err) {
+            console.error('Balance load error:', err);
+        }
+    };
+
+    const loadFraudStatus = async () => {
+        try {
+            const response = await fetch(`${API_URL}/api/fraud/status/${account}`, {
+                headers: { 'X-Wallet-Address': account }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setFraudWarnings({
+                    recycling: data.recycling_warnings_remaining ?? 2,
+                    water: data.water_warnings_remaining ?? 2
+                });
+                setHasPendingFraud(data.has_pending_fraud || false);
+            }
+        } catch (err) {
+            console.error('Fraud status load error:', err);
+        }
     };
 
     const handleFileChange = (event) => {
@@ -41,9 +80,6 @@ function Dashboard() {
         try {
             const result = await validateWaterMeter(selectedFile);
             setUploadResult(result);
-            // Başarılı işlem sonrası token bakiyesini güncellemek anlamlı olur
-            // Ancak backend'in mint yetkisi olması ve bunu yapması gerekir.
-            // Şimdilik sadece simülasyon olarak kullanıcıya gösteriyoruz.
         } catch (err) {
             setError("Yükleme veya analiz sırasında bir hata oluştu.");
         } finally {
@@ -58,13 +94,51 @@ function Dashboard() {
         setError(null);
     };
 
+    const handleRoleChange = (role) => {
+        setCurrentRole(role);
+    };
+
+    // Admin veya Staff için farklı ekran göster
+    if (currentRole === 'staff' || currentRole === 'admin') {
+        return (
+            <Grid container spacing={4}>
+                <Grid item xs={12}>
+                    <UserRoleSwitcher onRoleChange={handleRoleChange} />
+                </Grid>
+                <Grid item xs={12}>
+                    <StaffDashboard />
+                </Grid>
+            </Grid>
+        );
+    }
+
+    // Vatandaş Paneli
     return (
         <Grid container spacing={4}>
+            {/* Rol Switcher */}
+            <Grid item xs={12}>
+                <UserRoleSwitcher onRoleChange={handleRoleChange} />
+            </Grid>
+
             <Grid item xs={12}>
                 <Typography variant="h4" gutterBottom>
-                    Kullanıcı Paneli
+                    🏠 Vatandaş Paneli
                 </Typography>
             </Grid>
+
+            {/* Fraud Uyarısı */}
+            {hasPendingFraud && (
+                <Grid item xs={12}>
+                    <Alert severity="error" icon={<WarningIcon />}>
+                        <Typography variant="subtitle2" fontWeight="bold">
+                            ⚠️ Bekleyen Fraud İncelemesi
+                        </Typography>
+                        <Typography variant="body2">
+                            Hesabınızda inceleme bekleyen bir işlem bulunmaktadır. Lütfen admin onayını bekleyin.
+                        </Typography>
+                    </Alert>
+                </Grid>
+            )}
 
             {/* Balance Section */}
             <Grid item xs={12} md={4}>
@@ -80,9 +154,21 @@ function Dashboard() {
                         <Typography variant="body2" color="text.secondary">
                             {!account ? "Lütfen cüzdan bağlayın" : "Güncel Bakiye"}
                         </Typography>
-                        <Button variant="outlined" fullWidth sx={{ mt: 2 }} disabled={!account}>
-                            Çekim Yap
-                        </Button>
+
+                        {/* Fraud Hak Göstergesi */}
+                        <Divider sx={{ my: 2 }} />
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                            <Chip
+                                label={`♻️ Geri Dönüşüm Hakkı: ${fraudWarnings.recycling}/2`}
+                                color={fraudWarnings.recycling < 2 ? 'warning' : 'success'}
+                                size="small"
+                            />
+                            <Chip
+                                label={`💧 Su Sayacı Hakkı: ${fraudWarnings.water}/2`}
+                                color={fraudWarnings.water < 2 ? 'warning' : 'success'}
+                                size="small"
+                            />
+                        </Box>
                     </CardContent>
                 </Card>
             </Grid>
@@ -91,39 +177,62 @@ function Dashboard() {
             <Grid item xs={12} md={8}>
                 <Paper sx={{ p: 3 }}>
                     <Typography variant="h6" gutterBottom>
-                        Hızlı İşlemler
+                        🚀 Hızlı İşlemler
                     </Typography>
                     <Divider sx={{ mb: 2 }} />
                     <Grid container spacing={2}>
-                        <Grid item xs={12} sm={6}>
-                            <Button variant="contained" color="success" fullWidth sx={{ py: 2 }}>
-                                Geri Dönüşüm QR Okut
-                            </Button>
-                        </Grid>
+                        {/* Su Sayacı Fotoğrafı Yükle */}
                         <Grid item xs={12} sm={6}>
                             <Button
                                 variant="contained"
                                 color="info"
                                 fullWidth
-                                sx={{ py: 2 }}
-                                onClick={() => setOpenUpload(true)}
+                                sx={{ py: 2.5 }}
+                                startIcon={<CameraAltIcon />}
+                                onClick={() => navigate('/water')}
                             >
-                                Su Sayacı Yükle
+                                📸 Su Sayacı Fotoğrafı Yükle
                             </Button>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, textAlign: 'center' }}>
+                                Fotoğraf hash'i blockchain'de saklanır
+                            </Typography>
+                        </Grid>
+
+                        {/* Geri Dönüşüm Beyanı Ver */}
+                        <Grid item xs={12} sm={6}>
+                            <Button
+                                variant="contained"
+                                color="success"
+                                fullWidth
+                                sx={{ py: 2.5 }}
+                                startIcon={<QrCodeIcon />}
+                                onClick={() => navigate('/recycling')}
+                            >
+                                ♻️ Geri Dönüşüm Beyanı Ver
+                            </Button>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, textAlign: 'center' }}>
+                                3 saatlik QR kod oluştur
+                            </Typography>
                         </Grid>
                     </Grid>
                 </Paper>
 
+                {/* Son Hareketler */}
                 <Paper sx={{ p: 3, mt: 3 }}>
                     <Typography variant="h6" gutterBottom>
-                        Son Hareketler
+                        📋 Durum
                     </Typography>
                     <Divider sx={{ mb: 2 }} />
-                    {/* Mock List */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid #eee' }}>
                         <Typography>Cüzdan Bağlantısı</Typography>
                         <Typography color={account ? "success.main" : "text.secondary"}>
-                            {account ? "Aktif" : "Bekleniyor"}
+                            {account ? "✅ Aktif" : "⏳ Bekleniyor"}
+                        </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid #eee' }}>
+                        <Typography>Hesap Durumu</Typography>
+                        <Typography color={hasPendingFraud ? "warning.main" : "success.main"}>
+                            {hasPendingFraud ? "⚠️ İnceleme Bekliyor" : "✅ Normal"}
                         </Typography>
                     </Box>
                 </Paper>

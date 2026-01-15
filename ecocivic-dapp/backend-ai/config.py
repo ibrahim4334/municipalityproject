@@ -27,8 +27,9 @@ DATABASE_URL = os.getenv(
 # ==============================
 # AI / ML CONFIG
 # ==============================
-AI_MODEL_PROVIDER = os.getenv("AI_MODEL_PROVIDER", "openai")
-AI_MODEL_NAME = os.getenv("AI_MODEL_NAME", "gpt-4o-mini")
+# Supported providers: "gemini", "openai"
+AI_MODEL_PROVIDER = os.getenv("AI_MODEL_PROVIDER", "gemini")
+AI_MODEL_NAME = os.getenv("AI_MODEL_NAME", "gemini-2.0-flash")
 AI_API_KEY = os.getenv("AI_API_KEY")
 
 # Image verification confidence threshold

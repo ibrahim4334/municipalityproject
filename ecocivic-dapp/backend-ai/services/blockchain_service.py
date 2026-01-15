@@ -2,7 +2,18 @@ import logging
 import json
 import os
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+
+# Web3 6.x compatibility - POA middleware moved to different location
+try:
+    from web3.middleware import ExtraDataToPOAMiddleware
+    POA_MIDDLEWARE = ExtraDataToPOAMiddleware
+except ImportError:
+    try:
+        from web3.middleware import geth_poa_middleware
+        POA_MIDDLEWARE = geth_poa_middleware
+    except ImportError:
+        POA_MIDDLEWARE = None
+
 from config import (
     BLOCKCHAIN_RPC_URL, 
     BELT_TOKEN_ADDRESS, 
@@ -16,7 +27,11 @@ class BlockchainService:
     def __init__(self):
         self.w3 = Web3(Web3.HTTPProvider(BLOCKCHAIN_RPC_URL))
         # Polygon Mumbai vb. POA zincirleri için middleware gerekebilir
-        self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        if POA_MIDDLEWARE:
+            try:
+                self.w3.middleware_onion.inject(POA_MIDDLEWARE, layer=0)
+            except Exception as e:
+                logger.warning(f"Could not inject POA middleware: {e}")
         
         if not self.w3.is_connected():
             logger.error("Failed to connect to blockchain RPC")

@@ -1,19 +1,46 @@
-import { Typography, Container, Box, Grid, Paper, Alert, AlertTitle } from '@mui/material';
-import RecyclingQR from '../components/RecyclingQR';
+import { useState } from 'react';
+import { Typography, Container, Box, Grid, Paper, Alert, AlertTitle, Divider, Chip } from '@mui/material';
+import RecyclingDeclarationForm from '../components/RecyclingDeclarationForm';
+import RecyclingQRWithTimer from '../components/RecyclingQRWithTimer';
 import { useWallet } from '../context/WalletContext';
 
 function Recycling() {
     const { account, isCorrectNetwork, error } = useWallet();
+    const [qrResult, setQrResult] = useState(null);
+
+    const handleQRGenerated = (result) => {
+        setQrResult(result);
+    };
+
+    const handleQRExpired = () => {
+        setQrResult(null);
+    };
+
+    const handleCreateNew = () => {
+        setQrResult(null);
+    };
+
+    // QR detaylarını hazırla
+    const getDeclaredTypesForQR = () => {
+        if (!qrResult?.declared_types) return [];
+        return qrResult.declared_types;
+    };
 
     return (
         <Container maxWidth="lg">
             <Box sx={{ py: 4 }}>
                 <Typography variant="h4" component="h1" gutterBottom>
-                    ♻️ Geri Dönüşüm
+                    ♻️ Geri Dönüşüm Beyanı
                 </Typography>
-                <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-                    Geri dönüşülebilir malzemelerinizi getirin, BELT token kazanın!
+                <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+                    Tüm atık türlerinizi beyan edin, 3 saatlik QR kod alın ve BELT token kazanın!
                 </Typography>
+
+                {/* 3 Saat Uyarısı */}
+                <Alert severity="info" sx={{ mb: 3 }}>
+                    ⏰ <strong>Önemli:</strong> QR kodunuz oluşturulduktan sonra <strong>3 saat</strong> içinde geri dönüşüm merkezinde okutulmalıdır.
+                    Süre dolduğunda QR geçersiz olur ve yeni beyan oluşturmanız gerekir.
+                </Alert>
 
                 {error && (
                     <Alert severity="error" sx={{ mb: 3 }}>
@@ -32,39 +59,44 @@ function Recycling() {
                 {account && !isCorrectNetwork && (
                     <Alert severity="warning" sx={{ mb: 3 }}>
                         <AlertTitle>Yanlış Ağ</AlertTitle>
-                        Lütfen Polygon Mumbai ağına geçin.
+                        Lütfen doğru ağa geçin.
                     </Alert>
                 )}
 
                 <Grid container spacing={4}>
-                    {/* QR Code Generation Section */}
-                    <Grid item xs={12} md={6}>
+                    {/* Beyan Formu veya QR Gösterimi */}
+                    <Grid item xs={12} md={7}>
                         <Paper sx={{ p: 3, height: '100%' }}>
-                            <Typography variant="h6" gutterBottom>
-                                QR Kod Oluştur
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                Geri dönüşüm merkezine gitmeden önce QR kodunuzu oluşturun.
-                            </Typography>
-                            <RecyclingQR />
+                            {!qrResult ? (
+                                <RecyclingDeclarationForm onQRGenerated={handleQRGenerated} />
+                            ) : (
+                                <RecyclingQRWithTimer
+                                    qrData={qrResult.qr_data}
+                                    expiresAt={qrResult.expires_at}
+                                    declaredTypes={getDeclaredTypesForQR()}
+                                    totalReward={qrResult.total_reward}
+                                    onExpired={handleQRExpired}
+                                    onCreateNew={handleCreateNew}
+                                />
+                            )}
                         </Paper>
                     </Grid>
 
-                    {/* Information Section */}
-                    <Grid item xs={12} md={6}>
+                    {/* Bilgi Bölümü */}
+                    <Grid item xs={12} md={5}>
                         <Paper sx={{ p: 3, height: '100%' }}>
                             <Typography variant="h6" gutterBottom>
-                                Nasıl Çalışır?
+                                📋 Nasıl Çalışır?
                             </Typography>
                             <Box component="ol" sx={{ pl: 2 }}>
                                 <li>
                                     <Typography variant="body2" sx={{ mb: 1 }}>
-                                        Malzeme tipini ve miktarı girin
+                                        <strong>Tüm atık türleri için</strong> miktar girin (beyan etmeyecekleriniz 0 kalabilir)
                                     </Typography>
                                 </li>
                                 <li>
                                     <Typography variant="body2" sx={{ mb: 1 }}>
-                                        QR kodu oluşturun (3 saat geçerli)
+                                        QR kodu oluşturun (<strong>3 saat geçerli</strong>)
                                     </Typography>
                                 </li>
                                 <li>
@@ -74,41 +106,41 @@ function Recycling() {
                                 </li>
                                 <li>
                                     <Typography variant="body2" sx={{ mb: 1 }}>
-                                        Operatör QR kodunuzu tarayarak doğrulama yapar
+                                        Personel QR kodunuzu tarayarak <strong>onay veya fraud</strong> işaretler
                                     </Typography>
                                 </li>
                                 <li>
                                     <Typography variant="body2" sx={{ mb: 1 }}>
-                                        BELT tokenlarınız otomatik olarak cüzdanınıza gönderilir
+                                        Onay sonrası BELT tokenlarınız cüzdanınıza gönderilir
                                     </Typography>
                                 </li>
                             </Box>
 
-                            <Typography variant="h6" sx={{ mt: 3 }} gutterBottom>
-                                Ödül Oranları
+                            <Divider sx={{ my: 2 }} />
+
+                            <Typography variant="h6" gutterBottom>
+                                💰 Ödül Oranları
                             </Typography>
-                            <Box sx={{ 
-                                display: 'grid', 
-                                gridTemplateColumns: 'repeat(3, 1fr)', 
-                                gap: 2,
-                                mt: 2 
-                            }}>
-                                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'success.light' }}>
-                                    <Typography variant="h6">🥛</Typography>
-                                    <Typography variant="subtitle2">Cam</Typography>
-                                    <Typography variant="body2">1x BELT/kg</Typography>
-                                </Paper>
-                                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'info.light' }}>
-                                    <Typography variant="h6">📄</Typography>
-                                    <Typography variant="subtitle2">Kağıt</Typography>
-                                    <Typography variant="body2">1.5x BELT/kg</Typography>
-                                </Paper>
-                                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'warning.light' }}>
-                                    <Typography variant="h6">🔩</Typography>
-                                    <Typography variant="subtitle2">Metal</Typography>
-                                    <Typography variant="body2">2x BELT/kg</Typography>
-                                </Paper>
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
+                                <Chip label="🧴 Plastik: 10 BELT/kg" color="primary" />
+                                <Chip label="🥛 Cam: 12 BELT/kg" color="success" />
+                                <Chip label="🔩 Metal: 15 BELT/kg" color="warning" />
+                                <Chip label="📄 Kağıt: 8 BELT/kg" color="secondary" />
+                                <Chip label="📱 Elektronik: 25 BELT/adet" color="error" />
                             </Box>
+
+                            <Divider sx={{ my: 2 }} />
+
+                            <Typography variant="h6" gutterBottom>
+                                ⚠️ Fraud Kuralları
+                            </Typography>
+                            <Alert severity="warning" variant="outlined">
+                                <Typography variant="body2">
+                                    • Yanlış beyan <strong>2 hak</strong> sistemine tabidir<br />
+                                    • Her fraud tespitinde 1 hak düşer<br />
+                                    • 0 hak = hesap kara listeye alınır
+                                </Typography>
+                            </Alert>
                         </Paper>
                     </Grid>
                 </Grid>

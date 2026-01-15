@@ -56,11 +56,21 @@ export default function StaffDashboard() {
     };
 
     const loadPendingRecycling = async () => {
-        const res = await fetch(`${API_URL}/api/recycling/pending-approvals`, {
-            headers: { "X-Wallet-Address": account }
-        });
-        const data = await res.json();
-        setPendingRecycling(data.submissions || []);
+        // Yeni çoklu beyan endpoint'i
+        try {
+            const res = await fetch(`${API_URL}/api/recycling/declarations/pending`, {
+                headers: { "X-Wallet-Address": account }
+            });
+            const data = await res.json();
+            setPendingRecycling(data.declarations || []);
+        } catch (err) {
+            // Fallback eski endpoint
+            const res = await fetch(`${API_URL}/api/recycling/pending-approvals`, {
+                headers: { "X-Wallet-Address": account }
+            });
+            const data = await res.json();
+            setPendingRecycling(data.submissions || []);
+        }
     };
 
     const scheduleInspection = async (walletAddress) => {
@@ -91,14 +101,27 @@ export default function StaffDashboard() {
 
     const approveRecycling = async (submissionId) => {
         try {
-            const res = await fetch(`${API_URL}/api/recycling/approve/${submissionId}`, {
+            // Yeni declarations endpoint'i dene
+            let res = await fetch(`${API_URL}/api/recycling/declarations/${submissionId}/approve`, {
                 method: "POST",
-                headers: { "X-Wallet-Address": account }
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Wallet-Address": account
+                }
             });
+
+            // Hata durumunda eski endpoint'i dene
+            if (!res.ok) {
+                res = await fetch(`${API_URL}/api/recycling/approve/${submissionId}`, {
+                    method: "POST",
+                    headers: { "X-Wallet-Address": account }
+                });
+            }
+
             const data = await res.json();
 
             if (data.success) {
-                setMessage({ type: "success", text: `${data.reward_amount} BELT token ödülü verildi` });
+                setMessage({ type: "success", text: `✅ ${data.reward_amount || 0} BELT token ödülü verildi` });
                 loadData();
             } else {
                 setMessage({ type: "error", text: data.message });
@@ -109,28 +132,49 @@ export default function StaffDashboard() {
     };
 
     const rejectRecycling = async (submissionId, reason, isFraud) => {
-        const rejectReason = reason || prompt("Red sebebi:");
-        if (!rejectReason) return;
+        const rejectReason = reason || prompt("Red/Fraud sebebi:");
+        if (!rejectReason && isFraud) return;
 
         try {
-            const res = await fetch(`${API_URL}/api/recycling/reject/${submissionId}`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-Wallet-Address": account
-                },
-                body: JSON.stringify({
-                    reason: rejectReason,
-                    is_fraud: isFraud || false
-                })
-            });
-            const data = await res.json();
+            // Fraud için yeni endpoint
+            if (isFraud) {
+                const res = await fetch(`${API_URL}/api/recycling/declarations/${submissionId}/fraud`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Wallet-Address": account
+                    },
+                    body: JSON.stringify({ reason: rejectReason })
+                });
+                const data = await res.json();
 
-            if (data.success) {
-                setMessage({ type: "success", text: "Başvuru reddedildi" });
-                loadData();
+                if (data.success) {
+                    setMessage({ type: "success", text: `🚨 Fraud işaretlendi. Kalan hak: ${data.remaining_warnings ?? 'N/A'}` });
+                    loadData();
+                } else {
+                    setMessage({ type: "error", text: data.message });
+                }
             } else {
-                setMessage({ type: "error", text: data.message });
+                // Normal reddetme için eski endpoint
+                const res = await fetch(`${API_URL}/api/recycling/reject/${submissionId}`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Wallet-Address": account
+                    },
+                    body: JSON.stringify({
+                        reason: rejectReason,
+                        is_fraud: false
+                    })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    setMessage({ type: "success", text: "❌ Başvuru reddedildi" });
+                    loadData();
+                } else {
+                    setMessage({ type: "error", text: data.message });
+                }
             }
         } catch (err) {
             setMessage({ type: "error", text: err.message });

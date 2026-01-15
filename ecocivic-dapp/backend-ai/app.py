@@ -27,6 +27,7 @@ from auth.middleware import require_citizen, require_service_operator, require_a
 from utils import error_response, validate_wallet_address, normalize_wallet_address
 from services.cleanup import cleanup_old_files
 from services.blockchain_service import blockchain_service
+from services.recycling_declaration_service import recycling_declaration_service
 
 app = Flask(__name__)
 
@@ -584,7 +585,170 @@ def get_fraud_status(wallet_address):
         return error_response("Failed to get fraud status", 500, {"details": str(e) if DEBUG else None})
 
 
+# ==============================
+# RECYCLING DECLARATION ENDPOINTS
+# ==============================
+
+@app.route("/api/recycling/declare", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def create_recycling_declaration():
+    """
+    Çoklu atık türü beyanı oluştur - 3 saatlik QR
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return error_response("Request body is required", 400)
+        
+        wallet_address = data.get("wallet_address")
+        
+        if not wallet_address:
+            return error_response("wallet_address is required", 400)
+        
+        if not validate_wallet_address(wallet_address):
+            return error_response("Invalid wallet address format", 400)
+        
+        wallet_address = normalize_wallet_address(wallet_address)
+        
+        result = recycling_declaration_service.create_declaration(
+            wallet_address=wallet_address,
+            plastic_kg=float(data.get("plastic_kg", 0)),
+            glass_kg=float(data.get("glass_kg", 0)),
+            metal_kg=float(data.get("metal_kg", 0)),
+            paper_kg=float(data.get("paper_kg", 0)),
+            electronic_count=int(data.get("electronic_count", 0))
+        )
+        
+        return jsonify(result), 201
+        
+    except ValueError as e:
+        return error_response(str(e), 400)
+    except Exception as e:
+        logger.exception("Error creating recycling declaration")
+        return error_response("Failed to create declaration", 500, {"details": str(e) if DEBUG else None})
+
+
+@app.route("/api/recycling/declarations/pending", methods=["GET"])
+@require_service_operator
+@limiter.limit("30 per minute")
+def get_pending_declarations():
+    """
+    Bekleyen beyanları listele (admin için)
+    """
+    try:
+        declarations = recycling_declaration_service.get_pending_declarations()
+        
+        return jsonify({
+            "success": True,
+            "declarations": declarations,
+            "count": len(declarations)
+        }), 200
+        
+    except Exception as e:
+        logger.exception("Error getting pending declarations")
+        return error_response("Failed to get pending declarations", 500, {"details": str(e) if DEBUG else None})
+
+
+@app.route("/api/recycling/declarations/<int:declaration_id>/approve", methods=["POST"])
+@require_service_operator
+@limiter.limit("20 per minute")
+def approve_declaration(declaration_id):
+    """
+    Beyanı onayla
+    """
+    try:
+        current_user = getattr(request, "current_user", None)
+        admin_wallet = current_user["wallet_address"] if current_user else "unknown"
+        
+        result = recycling_declaration_service.approve_declaration(declaration_id, admin_wallet)
+        
+        if result["success"]:
+            # Blockchain'de ödül ver
+            try:
+                tx_hash = blockchain_service.reward_recycling(
+                    result["wallet_address"],
+                    "multi",  # Çoklu tür
+                    result["reward_amount"],
+                    f"decl_{declaration_id}"
+                )
+                result["transaction_hash"] = tx_hash
+            except Exception as e:
+                logger.error(f"Blockchain reward failed: {e}")
+                result["blockchain_error"] = str(e)
+        
+        return jsonify(result), 200 if result["success"] else 400
+        
+    except Exception as e:
+        logger.exception("Error approving declaration")
+        return error_response("Failed to approve declaration", 500, {"details": str(e) if DEBUG else None})
+
+
+@app.route("/api/recycling/declarations/<int:declaration_id>/fraud", methods=["POST"])
+@require_service_operator
+@limiter.limit("20 per minute")
+def mark_declaration_fraud(declaration_id):
+    """
+    Beyanı fraud olarak işaretle
+    """
+    try:
+        data = request.get_json() or {}
+        reason = data.get("reason", "")
+        
+        current_user = getattr(request, "current_user", None)
+        admin_wallet = current_user["wallet_address"] if current_user else "unknown"
+        
+        result = recycling_declaration_service.mark_fraud(declaration_id, admin_wallet, reason)
+        
+        return jsonify(result), 200 if result["success"] else 400
+        
+    except Exception as e:
+        logger.exception("Error marking declaration as fraud")
+        return error_response("Failed to mark fraud", 500, {"details": str(e) if DEBUG else None})
+
+
+@app.route("/api/user/fraud-warnings/<wallet_address>", methods=["GET"])
+@require_auth
+@limiter.limit("30 per minute")
+def get_user_fraud_warnings(wallet_address):
+    """
+    Kullanıcının kalan fraud hakkını getir
+    """
+    try:
+        if not validate_wallet_address(wallet_address):
+            return error_response("Invalid wallet address format", 400)
+        
+        wallet_address = normalize_wallet_address(wallet_address)
+        
+        from database.db import get_db
+        from database.models import User
+        
+        with get_db() as db:
+            user = db.query(User).filter(User.wallet_address == wallet_address).first()
+            
+            if not user:
+                return jsonify({
+                    "success": True,
+                    "recycling_warnings_remaining": 2,
+                    "water_warnings_remaining": 2,
+                    "has_pending_fraud": False
+                }), 200
+            
+            return jsonify({
+                "success": True,
+                "recycling_warnings_remaining": user.recycling_fraud_warnings_remaining,
+                "water_warnings_remaining": user.water_fraud_warnings_remaining,
+                "has_pending_fraud": False  # TODO: Check pending fraud
+            }), 200
+            
+    except Exception as e:
+        logger.exception("Error getting user fraud warnings")
+        return error_response("Failed to get fraud warnings", 500, {"details": str(e) if DEBUG else None})
+
+
 if __name__ == "__main__":
     from config import API_HOST, API_PORT
     app.run(host=API_HOST, port=API_PORT, debug=DEBUG)
+
 

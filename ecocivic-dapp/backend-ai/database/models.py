@@ -35,6 +35,9 @@ class User(Base):
     email = Column(String(255), nullable=True)
     name = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
+    # Fraud hak sistemi - geri dönüşümde 2 hak
+    recycling_fraud_warnings_remaining = Column(Integer, default=2)
+    water_fraud_warnings_remaining = Column(Integer, default=2)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)
@@ -57,8 +60,15 @@ class WaterMeterReading(Base):
     bill_amount = Column(Float, nullable=False)
     reward_amount = Column(Integer, nullable=False, default=0)
     image_path = Column(String(255), nullable=True)
+    # Fotoğraf hash'i blockchain'de saklanacak
+    photo_hash = Column(String(66), nullable=True)  # SHA256 hash of the photo
     is_valid = Column(Boolean, default=True)
     anomaly_detected = Column(Boolean, default=False)
+    # AI uyarısı sonrası kullanıcı onayı
+    user_confirmed_low_consumption = Column(Boolean, default=False)
+    # Admin fiziksel kontrol onayı
+    admin_approval_status = Column(String(20), default="pending")  # pending, approved, fraud
+    admin_approved_by = Column(String(42), nullable=True)
     validated_by = Column(String(42), nullable=True)  # Service operator wallet address
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -75,19 +85,71 @@ class RecyclingSubmission(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     wallet_address = Column(String(42), nullable=False, index=True)
-    material_type = Column(String(20), nullable=False)  # glass, paper, metal
+    material_type = Column(String(20), nullable=False)  # glass, paper, metal, plastic, electronic
     amount_kg = Column(Float, nullable=False)
     qr_token_id = Column(String(100), nullable=False, unique=True, index=True)
     qr_hash = Column(String(64), nullable=False, unique=True, index=True)
     reward_amount = Column(Integer, nullable=False)
     transaction_hash = Column(String(66), nullable=True, unique=True, index=True)
     is_processed = Column(Boolean, default=False)
+    # Admin onay sistemi
+    admin_approval_status = Column(String(20), default="pending")  # pending, approved, fraud
+    admin_approved_by = Column(String(42), nullable=True)
+    is_fraud = Column(Boolean, default=False)
+    fraud_reason = Column(Text, nullable=True)
     validated_by = Column(String(42), nullable=True)  # Service operator wallet address
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     processed_at = Column(DateTime(timezone=True), nullable=True)
     
     __table_args__ = (
         Index('idx_wallet_created', 'wallet_address', 'created_at'),
+        Index('idx_approval_status', 'admin_approval_status'),
+    )
+
+
+class RecyclingDeclaration(Base):
+    """
+    Çoklu atık türü beyanı - tek bir QR ile birden fazla atık türü
+    Vatandaş tüm atık türleri için miktar beyan eder, sadece beyan edilenler için QR oluşturulur
+    """
+    __tablename__ = "recycling_declarations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(42), nullable=False, index=True)
+    
+    # Tüm atık türleri için miktar (kg)
+    plastic_kg = Column(Float, default=0)
+    glass_kg = Column(Float, default=0)
+    metal_kg = Column(Float, default=0)
+    paper_kg = Column(Float, default=0)
+    electronic_count = Column(Integer, default=0)  # Adet olarak
+    
+    # QR bilgileri
+    qr_token_id = Column(String(100), nullable=False, unique=True, index=True)
+    qr_hash = Column(String(64), nullable=False, unique=True, index=True)
+    qr_expires_at = Column(DateTime(timezone=True), nullable=False)  # 3 saat geçerli
+    is_qr_expired = Column(Boolean, default=False)
+    is_qr_used = Column(Boolean, default=False)
+    
+    # Hesaplanan toplam ödül
+    total_reward_amount = Column(Integer, nullable=False, default=0)
+    
+    # Admin onay sistemi
+    admin_approval_status = Column(String(20), default="pending")  # pending, approved, fraud
+    admin_approved_by = Column(String(42), nullable=True)
+    is_fraud = Column(Boolean, default=False)
+    fraud_reason = Column(Text, nullable=True)
+    
+    # Blockchain
+    transaction_hash = Column(String(66), nullable=True, index=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    __table_args__ = (
+        Index('idx_declaration_wallet', 'wallet_address'),
+        Index('idx_declaration_status', 'admin_approval_status'),
+        Index('idx_declaration_expires', 'qr_expires_at'),
     )
 
 
