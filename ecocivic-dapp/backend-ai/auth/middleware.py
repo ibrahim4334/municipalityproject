@@ -17,42 +17,73 @@ def get_token_from_header():
 
 
 def require_auth(f):
-    """Token doğrulama decorator'ı"""
+    """
+    Token doğrulama decorator'ı.
+    Demo modu için X-Wallet-Address header'ını da destekler.
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Önce JWT token kontrolü
         token = get_token_from_header()
-        if not token:
-            return jsonify({"error": "Authentication required"}), 401
+        if token:
+            payload = verify_token(token)
+            if payload:
+                request.current_user = {
+                    "wallet_address": payload.get("wallet_address"),
+                    "role": payload.get("role")
+                }
+                return f(*args, **kwargs)
         
-        payload = verify_token(token)
-        if not payload:
-            return jsonify({"error": "Invalid or expired token"}), 401
+        # Fallback: X-Wallet-Address header (demo modu)
+        wallet_address = request.headers.get("X-Wallet-Address")
+        if wallet_address and len(wallet_address) >= 10:
+            # Demo modunda basit wallet auth
+            request.current_user = {
+                "wallet_address": wallet_address,
+                "role": "CITIZEN"  # Default role
+            }
+            return f(*args, **kwargs)
         
-        # Request context'e user bilgilerini ekle
-        request.current_user = {
-            "wallet_address": payload.get("wallet_address"),
-            "role": payload.get("role")
-        }
-        
-        return f(*args, **kwargs)
+        return jsonify({"error": "Authentication required"}), 401
     return decorated_function
 
 
 def require_role(*allowed_roles: UserRole):
-    """Role-based authorization decorator'ı"""
+    """
+    Role-based authorization decorator'ı.
+    Demo modu için X-Wallet-Address header'ı ile tüm rollere erişim sağlanır.
+    """
     def decorator(f):
         @wraps(f)
-        @require_auth
         def decorated_function(*args, **kwargs):
+            # Önce JWT token kontrolü
             token = get_token_from_header()
-            user_role = get_role_from_token(token)
+            if token:
+                payload = verify_token(token)
+                if payload:
+                    user_role = get_role_from_token(token)
+                    if not user_role or user_role not in allowed_roles:
+                        return jsonify({
+                            "error": f"Access denied. Required roles: {[r.value for r in allowed_roles]}"
+                        }), 403
+                    
+                    request.current_user = {
+                        "wallet_address": payload.get("wallet_address"),
+                        "role": payload.get("role")
+                    }
+                    return f(*args, **kwargs)
             
-            if not user_role or user_role not in allowed_roles:
-                return jsonify({
-                    "error": f"Access denied. Required roles: {[r.value for r in allowed_roles]}"
-                }), 403
+            # Demo modu: X-Wallet-Address header ile tüm rollere erişim
+            wallet_address = request.headers.get("X-Wallet-Address")
+            if wallet_address and len(wallet_address) >= 10:
+                # Demo modunda rol kontrolü yapılmaz
+                request.current_user = {
+                    "wallet_address": wallet_address,
+                    "role": "SERVICE_OPERATOR"  # Demo için işlem yapabilsin
+                }
+                return f(*args, **kwargs)
             
-            return f(*args, **kwargs)
+            return jsonify({"error": "Authentication required"}), 401
         return decorated_function
     return decorator
 

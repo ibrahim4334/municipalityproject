@@ -322,3 +322,47 @@ DEFAULT_MATERIAL_MULTIPLIERS = {
     "paper": {"multiplier": 0.8, "base_rate": 8, "description": "Kağıt - Karton, Gazete, Ofis"},
     "electronic": {"multiplier": 2.0, "base_rate": 25, "description": "Elektronik - PCB, Pil, Telefon"},
 }
+
+
+class Notification(Base):
+    """
+    Kullanıcı bildirimleri
+    Beyan onay, red, fraud durumları için
+    """
+    __tablename__ = "notifications"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(42), nullable=False, index=True)  # "ADMIN" for admin notifications
+    notification_type = Column(String(50), nullable=False)  # declaration_rejected, fraud_marked, etc.
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    __table_args__ = (
+        Index('idx_notification_wallet_read', 'wallet_address', 'is_read'),
+    )
+
+
+class FraudAppeal(Base):
+    """
+    Fraud itiraz/inceleme talepleri
+    Personel fraud işaretlediğinde yöneticiye gider
+    """
+    __tablename__ = "fraud_appeals"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    declaration_id = Column(Integer, nullable=False, index=True)  # ilgili beyan
+    citizen_wallet = Column(String(42), nullable=False, index=True)  # vatandaş
+    staff_wallet = Column(String(42), nullable=False)  # fraud işareti koyan personel
+    reason = Column(Text, nullable=True)  # fraud sebebi
+    status = Column(String(20), default="pending", index=True)  # pending, approved, rejected
+    admin_decision = Column(Text, nullable=True)  # yönetici kararı
+    admin_wallet = Column(String(42), nullable=True)  # karar veren yönetici
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    
+    __table_args__ = (
+        Index('idx_fraud_appeal_status', 'status'),
+        Index('idx_fraud_appeal_created', 'created_at'),
+    )

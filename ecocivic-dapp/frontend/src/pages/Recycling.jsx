@@ -1,23 +1,51 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Typography, Container, Box, Grid, Paper, Alert, AlertTitle, Divider, Chip } from '@mui/material';
 import RecyclingDeclarationForm from '../components/RecyclingDeclarationForm';
 import RecyclingQRWithTimer from '../components/RecyclingQRWithTimer';
 import { useWallet } from '../context/WalletContext';
 
+const QR_STORAGE_KEY = 'ecocivic_active_qr';
+
 function Recycling() {
     const { account, isCorrectNetwork, error } = useWallet();
-    const [qrResult, setQrResult] = useState(null);
+
+    // localStorage'dan QR verisini yükle
+    const [qrResult, setQrResult] = useState(() => {
+        try {
+            const saved = localStorage.getItem(QR_STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // Süresi dolmuş mu kontrol et
+                if (parsed.expires_at && new Date(parsed.expires_at) > new Date()) {
+                    return parsed;
+                } else {
+                    localStorage.removeItem(QR_STORAGE_KEY);
+                }
+            }
+        } catch (e) {
+            console.error('Error loading QR from storage:', e);
+        }
+        return null;
+    });
 
     const handleQRGenerated = (result) => {
         setQrResult(result);
+        // localStorage'a kaydet
+        try {
+            localStorage.setItem(QR_STORAGE_KEY, JSON.stringify(result));
+        } catch (e) {
+            console.error('Error saving QR to storage:', e);
+        }
     };
 
     const handleQRExpired = () => {
         setQrResult(null);
+        localStorage.removeItem(QR_STORAGE_KEY);
     };
 
     const handleCreateNew = () => {
         setQrResult(null);
+        localStorage.removeItem(QR_STORAGE_KEY);
     };
 
     // QR detaylarını hazırla

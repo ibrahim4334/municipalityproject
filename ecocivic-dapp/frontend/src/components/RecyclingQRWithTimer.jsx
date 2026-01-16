@@ -31,8 +31,16 @@ export default function RecyclingQRWithTimer({
 
         const calculateTimeRemaining = () => {
             const now = new Date().getTime();
-            const expiry = new Date(expiresAt).getTime();
+            // UTC tarih olarak parse et
+            let expiryStr = expiresAt;
+            if (!expiryStr.endsWith('Z') && !expiryStr.includes('+')) {
+                expiryStr = expiryStr + 'Z'; // UTC olarak işle
+            }
+            const expiry = new Date(expiryStr).getTime();
             const diff = expiry - now;
+
+            // Debug log
+            console.log('[QR Timer] Now:', new Date(now).toISOString(), 'Expires:', expiryStr, 'Diff:', diff, 'ms');
 
             if (diff <= 0) {
                 setIsExpired(true);

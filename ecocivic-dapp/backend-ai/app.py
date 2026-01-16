@@ -297,6 +297,78 @@ def validate_water_meter():
     return jsonify(response_data)
 
 
+@app.route("/api/water/manual-entry", methods=["POST"])
+@require_auth
+@limiter.limit("5 per hour")
+def manual_water_entry():
+    """
+    Manuel sayaç girişi - OCR 3 kez başarısız olursa kullanılır.
+    Manuel girişler otomatik olarak fiziksel kontrol için işaretlenir.
+    """
+    data = request.get_json()
+    
+    if not data:
+        return error_response("Veri bulunamadı", 400)
+    
+    wallet_address = data.get("wallet_address")
+    meter_number = data.get("meter_number")
+    current_index = data.get("current_index")
+    
+    if not wallet_address or not meter_number or current_index is None:
+        return error_response("wallet_address, meter_number ve current_index zorunlu", 400)
+    
+    try:
+        current_index = float(current_index)
+        if current_index < 0:
+            return error_response("Tüketim değeri negatif olamaz", 400)
+    except (TypeError, ValueError):
+        return error_response("Geçersiz tüketim değeri", 400)
+    
+    wallet_address = normalize_wallet_address(wallet_address)
+    
+    try:
+        # Veritabanına kaydet - manuel giriş olarak işaretle
+        from database.db import get_db
+        from database.models import WaterMeterReading, User
+        from datetime import datetime
+        
+        with get_db() as db:
+            # Kullanıcıyı bul veya oluştur
+            user = db.query(User).filter(User.wallet_address == wallet_address).first()
+            if not user:
+                user = User(wallet_address=wallet_address, role="CITIZEN")
+                db.add(user)
+                db.flush()
+            
+            # Manuel giriş kaydı oluştur
+            reading = WaterMeterReading(
+                user_id=user.id,
+                wallet_address=wallet_address,
+                current_index=current_index,
+                consumption=0,  # Önceki okuma olmadan hesaplanamaz
+                is_anomaly=False,
+                requires_inspection=True,  # Manuel giriş = fiziksel kontrol gerekli
+                reading_date=datetime.utcnow()
+            )
+            db.add(reading)
+            db.commit()
+            
+            logger.info(f"Manuel giriş kaydedildi: {wallet_address}, değer: {current_index}")
+        
+        return jsonify({
+            "valid": True,
+            "current_index": current_index,
+            "meter_number": meter_number,
+            "manual_entry": True,
+            "requires_inspection": True,
+            "message": "Manuel giriş kabul edildi. Fiziksel kontrol için işaretlendi."
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Manuel giriş hatası: {str(e)}")
+        return error_response(f"Manuel giriş kaydedilemedi: {str(e)}", 500)
+
+
 @app.route("/api/recycling/generate-qr", methods=["POST"])
 @require_service_operator # Sadece operatörler QR üretebilir
 @limiter.limit("20 per minute")
@@ -685,21 +757,133 @@ def approve_declaration(declaration_id):
         return error_response("Failed to approve declaration", 500, {"details": str(e) if DEBUG else None})
 
 
+@app.route("/api/recycling/reject/<int:declaration_id>", methods=["POST"])
+@require_service_operator
+@limiter.limit("20 per minute")
+def reject_declaration(declaration_id):
+    """
+    Beyanı reddet ve vatandaşa bildirim gönder
+    """
+    try:
+        data = request.get_json() or {}
+        reason = data.get("reason", "Beyan reddedildi")
+        
+        current_user = getattr(request, "current_user", None)
+        staff_wallet = current_user["wallet_address"] if current_user else "unknown"
+        
+        from database.db import get_db
+        from database.models import RecyclingDeclaration
+        from datetime import datetime
+        
+        with get_db() as db:
+            declaration = db.query(RecyclingDeclaration).filter(RecyclingDeclaration.id == declaration_id).first()
+            if not declaration:
+                return error_response("Beyan bulunamadı", 404)
+            
+            if declaration.status != "pending":
+                return error_response(f"Beyan zaten işlenmiş: {declaration.status}", 400)
+            
+            # Beyanı reddet
+            declaration.status = "rejected"
+            declaration.reviewed_by = staff_wallet
+            declaration.reviewed_at = datetime.utcnow()
+            declaration.rejection_reason = reason
+            
+            # Vatandaşa bildirim oluştur (notifications tablosuna kaydet)
+            try:
+                from database.models import Notification
+                notification = Notification(
+                    wallet_address=declaration.wallet_address,
+                    notification_type="declaration_rejected",
+                    title="Beyanınız Reddedildi",
+                    message=f"Geri dönüşüm beyanınız (ID: {declaration_id}) reddedildi. Sebep: {reason}",
+                    is_read=False,
+                    created_at=datetime.utcnow()
+                )
+                db.add(notification)
+            except Exception as e:
+                logger.warning(f"Notification oluşturulamadı: {e}")
+            
+            db.commit()
+            
+        return jsonify({
+            "success": True,
+            "message": f"Beyan reddedildi. Vatandaşa bildirim gönderildi.",
+            "reason": reason
+        }), 200
+        
+    except Exception as e:
+        logger.exception("Error rejecting declaration")
+        return error_response("Failed to reject declaration", 500, {"details": str(e) if DEBUG else None})
+
+
 @app.route("/api/recycling/declarations/<int:declaration_id>/fraud", methods=["POST"])
 @require_service_operator
 @limiter.limit("20 per minute")
 def mark_declaration_fraud(declaration_id):
     """
-    Beyanı fraud olarak işaretle
+    Beyanı fraud olarak işaretle ve yöneticiye bildir
     """
     try:
         data = request.get_json() or {}
-        reason = data.get("reason", "")
+        reason = data.get("reason", "Fraud tespiti")
         
         current_user = getattr(request, "current_user", None)
-        admin_wallet = current_user["wallet_address"] if current_user else "unknown"
+        staff_wallet = current_user["wallet_address"] if current_user else "unknown"
         
-        result = recycling_declaration_service.mark_fraud(declaration_id, admin_wallet, reason)
+        # Önce recycling_declaration_service ile işle
+        result = recycling_declaration_service.mark_fraud(declaration_id, staff_wallet, reason)
+        
+        if result["success"]:
+            # Yöneticiye fraud inceleme bildirimi gönder
+            try:
+                from database.db import get_db
+                from database.models import Notification, RecyclingDeclaration, FraudAppeal
+                from datetime import datetime
+                
+                with get_db() as db:
+                    declaration = db.query(RecyclingDeclaration).filter(RecyclingDeclaration.id == declaration_id).first()
+                    
+                    # Fraud Appeal kayıt (Admin paneline gidecek)
+                    try:
+                        appeal = FraudAppeal(
+                            declaration_id=declaration_id,
+                            citizen_wallet=declaration.wallet_address if declaration else "unknown",
+                            staff_wallet=staff_wallet,
+                            reason=reason,
+                            status="pending",
+                            created_at=datetime.utcnow()
+                        )
+                        db.add(appeal)
+                    except Exception as e:
+                        logger.warning(f"FraudAppeal tablosu yok veya hata: {e}")
+                    
+                    # Yönetici bildirimi
+                    admin_notification = Notification(
+                        wallet_address="ADMIN",  # Tüm adminlere
+                        notification_type="fraud_review_required",
+                        title="Fraud İncelemesi Gerekiyor",
+                        message=f"Personel {staff_wallet[:10]}... beyan #{declaration_id} için fraud tespiti yaptı. Sebep: {reason}",
+                        is_read=False,
+                        created_at=datetime.utcnow()
+                    )
+                    db.add(admin_notification)
+                    
+                    # Vatandaşa bildirim
+                    citizen_notification = Notification(
+                        wallet_address=declaration.wallet_address if declaration else "unknown",
+                        notification_type="fraud_marked",
+                        title="Beyanınız İncelemeye Alındı",
+                        message=f"Beyanınız (ID: {declaration_id}) fraud şüphesi ile incelemeye alındı. Yönetici kararı bekleniyor.",
+                        is_read=False,
+                        created_at=datetime.utcnow()
+                    )
+                    db.add(citizen_notification)
+                    
+                    db.commit()
+                    
+            except Exception as e:
+                logger.warning(f"Fraud bildirimleri oluşturulamadı: {e}")
         
         return jsonify(result), 200 if result["success"] else 400
         

@@ -48,7 +48,7 @@ export default function StaffDashboard() {
         setPendingInspections(pendingData.inspections || []);
 
         // Kontrol süresi dolanlar
-        const dueRes = await fetch(`${API_URL}/api/inspection/users-due`, {
+        const dueRes = await fetch(`${API_URL}/api/inspection/due`, {
             headers: { "X-Wallet-Address": account }
         });
         const dueData = await dueRes.json();
@@ -282,39 +282,84 @@ export default function StaffDashboard() {
                     {pendingRecycling.length === 0 ? (
                         <p style={styles.empty}>Onay bekleyen başvuru yok</p>
                     ) : (
-                        <div style={styles.list}>
-                            {pendingRecycling.map((sub) => (
-                                <div key={sub.id} style={styles.card}>
-                                    <div style={styles.cardHeader}>
-                                        <span>ID: {sub.id}</span>
-                                        <span style={styles.badge}>{sub.waste_type}</span>
-                                    </div>
-                                    <p><strong>Cüzdan:</strong> {sub.wallet_address?.slice(0, 10)}...</p>
-                                    <p><strong>Miktar:</strong> {sub.amount} {sub.waste_type === "electronic" ? "adet" : "kg"}</p>
-                                    <p><strong>Alt Kategori:</strong> {sub.subcategory || "-"}</p>
-                                    <p><strong>Tarih:</strong> {new Date(sub.submitted_at).toLocaleString("tr-TR")}</p>
-                                    <div style={styles.actions}>
-                                        <button
-                                            onClick={() => approveRecycling(sub.id)}
-                                            style={styles.approveBtn}
-                                        >
-                                            ✅ Onayla
-                                        </button>
-                                        <button
-                                            onClick={() => rejectRecycling(sub.id, null, false)}
-                                            style={styles.rejectBtn}
-                                        >
-                                            ❌ Reddet
-                                        </button>
-                                        <button
-                                            onClick={() => rejectRecycling(sub.id, "Fraud tespiti", true)}
-                                            style={styles.fraudBtn}
-                                        >
-                                            🚨 Fraud
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
+                        <div style={styles.tableContainer}>
+                            <table style={styles.table}>
+                                <thead>
+                                    <tr style={styles.tableHeader}>
+                                        <th style={styles.th}>ID</th>
+                                        <th style={styles.th}>Cüzdan</th>
+                                        <th style={styles.th}>Tarih</th>
+                                        <th style={styles.th}>Plastik</th>
+                                        <th style={styles.th}>Cam</th>
+                                        <th style={styles.th}>Metal</th>
+                                        <th style={styles.th}>Kağıt</th>
+                                        <th style={styles.th}>Elektronik</th>
+                                        <th style={styles.th}>Toplam Ödül</th>
+                                        <th style={styles.th}>İşlem</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pendingRecycling.map((sub) => (
+                                        <tr key={sub.id} style={styles.tableRow}>
+                                            <td style={styles.td}>{sub.id}</td>
+                                            <td style={styles.td} title={sub.wallet_address}>
+                                                {sub.wallet_address?.slice(0, 8)}...
+                                            </td>
+                                            <td style={styles.td}>
+                                                {sub.created_at ? new Date(sub.created_at).toLocaleString("tr-TR") : "-"}
+                                            </td>
+                                            <td style={styles.td}>
+                                                {sub.plastic_kg > 0 ? `${sub.plastic_kg} kg` : "-"}
+                                            </td>
+                                            <td style={styles.td}>
+                                                {sub.glass_kg > 0 ? `${sub.glass_kg} kg` : "-"}
+                                            </td>
+                                            <td style={styles.td}>
+                                                {sub.metal_kg > 0 ? `${sub.metal_kg} kg` : "-"}
+                                            </td>
+                                            <td style={styles.td}>
+                                                {sub.paper_kg > 0 ? `${sub.paper_kg} kg` : "-"}
+                                            </td>
+                                            <td style={styles.td}>
+                                                {sub.electronic_count > 0 ? `${sub.electronic_count} adet` : "-"}
+                                            </td>
+                                            <td style={styles.tdReward}>{sub.total_reward} BELT</td>
+                                            <td style={styles.tdActions}>
+                                                <button
+                                                    onClick={() => approveRecycling(sub.id)}
+                                                    style={styles.approveBtn}
+                                                    title="Beyanı onayla"
+                                                >
+                                                    ✅
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const reason = prompt("Red sebebi (vatandaşa bildirilecek):");
+                                                        if (reason !== null) {
+                                                            rejectRecycling(sub.id, reason || "Beyan reddedildi", false);
+                                                        }
+                                                    }}
+                                                    style={styles.rejectBtn}
+                                                    title="Beyanı reddet"
+                                                >
+                                                    ❌
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        if (confirm("Fraud olarak işaretlenecek. Yöneticiye bildirilecek. Emin misiniz?")) {
+                                                            rejectRecycling(sub.id, "Fraud tespiti - yönetici incelemesi bekleniyor", true);
+                                                        }
+                                                    }}
+                                                    style={styles.fraudBtn}
+                                                    title="Fraud olarak işaretle (Yöneticiye gider)"
+                                                >
+                                                    🚨
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     )}
                 </div>
@@ -467,5 +512,48 @@ const styles = {
         border: "none",
         fontSize: "20px",
         cursor: "pointer"
+    },
+    // Tablo stilleri
+    tableContainer: {
+        overflowX: "auto",
+        marginTop: "10px"
+    },
+    table: {
+        width: "100%",
+        borderCollapse: "collapse",
+        fontSize: "14px",
+        backgroundColor: "#fff"
+    },
+    tableHeader: {
+        backgroundColor: "#2196f3",
+        color: "white"
+    },
+    th: {
+        padding: "12px 8px",
+        textAlign: "left",
+        fontWeight: "600",
+        whiteSpace: "nowrap",
+        borderBottom: "2px solid #1976d2"
+    },
+    tableRow: {
+        borderBottom: "1px solid #e0e0e0",
+        backgroundColor: "#fafafa"
+    },
+    td: {
+        padding: "10px 8px",
+        color: "#333",
+        verticalAlign: "middle"
+    },
+    tdReward: {
+        padding: "10px 8px",
+        color: "#4caf50",
+        fontWeight: "bold",
+        verticalAlign: "middle"
+    },
+    tdActions: {
+        padding: "8px",
+        display: "flex",
+        gap: "4px",
+        verticalAlign: "middle"
     }
 };

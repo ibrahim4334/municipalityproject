@@ -13,6 +13,7 @@ import { validateWaterMeter } from '../services/api';
 import { getBeltBalance } from '../services/contractService';
 import UserRoleSwitcher from '../components/UserRoleSwitcher';
 import StaffDashboard from '../components/StaffDashboard';
+import AdminDashboard from '../components/AdminDashboard';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -98,8 +99,22 @@ function Dashboard() {
         setCurrentRole(role);
     };
 
-    // Admin veya Staff için farklı ekran göster
-    if (currentRole === 'staff' || currentRole === 'admin') {
+    // Admin için Yönetici Paneli
+    if (currentRole === 'admin') {
+        return (
+            <Grid container spacing={4}>
+                <Grid item xs={12}>
+                    <UserRoleSwitcher onRoleChange={handleRoleChange} />
+                </Grid>
+                <Grid item xs={12}>
+                    <AdminDashboard />
+                </Grid>
+            </Grid>
+        );
+    }
+
+    // Personel için Personel Paneli
+    if (currentRole === 'staff') {
         return (
             <Grid container spacing={4}>
                 <Grid item xs={12}>

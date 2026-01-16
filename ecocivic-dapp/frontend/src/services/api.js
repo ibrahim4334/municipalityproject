@@ -111,6 +111,7 @@ export const uploadWaterMeterPhoto = async (imageFile, walletAddress, userConfir
   const response = await api.post("/api/water/validate", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
+      "X-Wallet-Address": walletAddress || "",
     },
     timeout: 60000, // AI processing might take time
   });

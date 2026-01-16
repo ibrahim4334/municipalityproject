@@ -7,9 +7,9 @@ import BadgeIcon from '@mui/icons-material/Badge';
 /**
  * UserRoleSwitcher - Demo için rol değiştirme bileşeni
  * 
- * - Vatandaş: Normal kullanıcı ekranı
- * - Admin: Yönetici paneli
- * - Personel: Fiziksel kontrol ve onay ekranı
+ * - Vatandaş: Beyan verir, QR alır, ödül kazanır
+ * - Personel: Fiziksel kontrol yapar, onay/fraud işaretler
+ * - Admin: İstatistik görür, fraud itirazlarında son kararı verir
  */
 export default function UserRoleSwitcher({ onRoleChange }) {
     const [currentRole, setCurrentRole] = useState(() => {
@@ -35,7 +35,7 @@ export default function UserRoleSwitcher({ onRoleChange }) {
     const getRoleLabel = (role) => {
         switch (role) {
             case 'citizen': return 'Vatandaş';
-            case 'admin': return 'Admin';
+            case 'admin': return 'Yönetici';
             case 'staff': return 'Personel';
             default: return role;
         }
@@ -74,15 +74,15 @@ export default function UserRoleSwitcher({ onRoleChange }) {
             >
                 <ToggleButton value="citizen" aria-label="vatandaş">
                     <PersonIcon sx={{ mr: 0.5 }} />
-                    Vatandaş
-                </ToggleButton>
-                <ToggleButton value="admin" aria-label="admin">
-                    <AdminPanelSettingsIcon sx={{ mr: 0.5 }} />
-                    Admin
+                    👤 Vatandaş
                 </ToggleButton>
                 <ToggleButton value="staff" aria-label="personel">
                     <BadgeIcon sx={{ mr: 0.5 }} />
-                    Personel
+                    👷 Personel
+                </ToggleButton>
+                <ToggleButton value="admin" aria-label="yönetici">
+                    <AdminPanelSettingsIcon sx={{ mr: 0.5 }} />
+                    🛡️ Yönetici
                 </ToggleButton>
             </ToggleButtonGroup>
 
