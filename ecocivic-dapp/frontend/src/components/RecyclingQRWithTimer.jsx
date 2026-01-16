@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Box, Typography, Paper, Button, Alert, LinearProgress, Chip } from '@mui/material';
-import QRCode from 'qrcode.react';
+import { QRCodeSVG } from 'qrcode.react';
 import TimerIcon from '@mui/icons-material/Timer';
 import WarningIcon from '@mui/icons-material/Warning';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -156,7 +156,7 @@ export default function RecyclingQRWithTimer({
                 borderRadius: 2,
                 boxShadow: 2
             }}>
-                <QRCode
+                <QRCodeSVG
                     value={qrPayload}
                     size={220}
                     level="H"

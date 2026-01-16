@@ -14,7 +14,7 @@ import { getBeltBalance } from '../services/contractService';
 import UserRoleSwitcher from '../components/UserRoleSwitcher';
 import StaffDashboard from '../components/StaffDashboard';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 function Dashboard() {
     const navigate = useNavigate();
