@@ -3,7 +3,7 @@ from sqlalchemy import func
 from auth.middleware import require_municipality_admin
 from database.db import get_db
 from database.models import User, UserRole, WaterMeterReading, RecyclingSubmission, PenaltyRecord
-from utils import error_response, validate_wallet_address
+from utils import error_response, validate_wallet_address, normalize_wallet_address
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -142,13 +142,13 @@ def admin_stats():
         
         with get_db() as db:
             total = db.query(RecyclingDeclaration).count()
-            approved = db.query(RecyclingDeclaration).filter(RecyclingDeclaration.status == "approved").count()
-            pending = db.query(RecyclingDeclaration).filter(RecyclingDeclaration.status == "pending").count()
-            fraud = db.query(RecyclingDeclaration).filter(RecyclingDeclaration.status == "fraud").count()
+            approved = db.query(RecyclingDeclaration).filter(RecyclingDeclaration.admin_approval_status == "approved").count()
+            pending = db.query(RecyclingDeclaration).filter(RecyclingDeclaration.admin_approval_status == "pending").count()
+            fraud = db.query(RecyclingDeclaration).filter(RecyclingDeclaration.admin_approval_status == "fraud").count()
             
             # Toplam ödül hesapla
-            total_rewards_result = db.query(func.sum(RecyclingDeclaration.total_reward)).filter(
-                RecyclingDeclaration.status == "approved"
+            total_rewards_result = db.query(func.sum(RecyclingDeclaration.total_reward_amount)).filter(
+                RecyclingDeclaration.admin_approval_status == "approved"
             ).scalar()
             total_rewards = total_rewards_result or 0
             
@@ -188,7 +188,7 @@ def get_fraud_appeals():
                     "status": appeal.status,
                     "staff_wallet": appeal.staff_wallet,
                     "declaration_id": appeal.declaration_id,
-                    "total_reward": declaration.total_reward if declaration else 0
+                    "total_reward": declaration.total_reward_amount if declaration else 0
                 })
             
             return jsonify({
@@ -231,45 +231,118 @@ def decide_fraud_appeal(appeal_id):
             declaration = db.query(RecyclingDeclaration).filter(RecyclingDeclaration.id == appeal.declaration_id).first()
             
             if decision == "approve":
-                # İtiraz kabul edildi - fraud kararı kaldırıldı
+                # İtiraz kabul edildi - fraud kararı kaldırıldı - VATANDAş KAZANDI
                 appeal.status = "approved"
                 appeal.admin_decision = "İtiraz kabul edildi, fraud kararı kaldırıldı"
                 appeal.admin_wallet = admin_wallet
                 appeal.resolved_at = datetime.utcnow()
                 
-                # Beyanı tekrar pending'e al veya approved yap
+                # Beyanı onaylanmış olarak işaretle
+                reward_amount = 0
                 if declaration:
-                    declaration.status = "pending"  # Tekrar incelemeye alındı
+                    declaration.admin_approval_status = "approved"
+                    declaration.is_fraud = False
+                    reward_amount = declaration.total_reward_amount or 0
                 
                 # Vatandaşın fraud hakkını geri ver
-                user = db.query(User).filter(User.wallet_address == appeal.citizen_wallet).first()
+                citizen_wallet_norm = normalize_wallet_address(appeal.citizen_wallet)
+                user = db.query(User).filter(User.wallet_address == citizen_wallet_norm).first()
                 if user and user.recycling_fraud_warnings_remaining < 2:
                     user.recycling_fraud_warnings_remaining += 1
                 
+                # Blockchain'de token ödülü ver
+                tx_hash = None
+                if reward_amount > 0:
+                    try:
+                        from services.blockchain_service import blockchain_service
+                        tx_hash = blockchain_service.reward_recycling(
+                            appeal.citizen_wallet,
+                            "multi",
+                            reward_amount,
+                            f"appeal_approved_{appeal.id}"
+                        )
+                    except Exception as blockchain_err:
+                        import logging
+                        logging.warning(f"Blockchain reward failed: {blockchain_err}")
+                
                 # Vatandaşa bildirim
+                msg = f"Fraud itirazınız kabul edildi! Beyanınız onaylandı ve {reward_amount} BELT hesabınıza aktarıldı."
+                if tx_hash:
+                    msg += f" TX: {tx_hash[:10]}..."
+                    
                 notification = Notification(
-                    wallet_address=appeal.citizen_wallet,
+                    wallet_address=normalize_wallet_address(appeal.citizen_wallet),
                     notification_type="fraud_appeal_approved",
-                    title="İtirazınız Kabul Edildi",
-                    message="Fraud itirazınız yönetici tarafından kabul edildi. Fraud kaydınız kaldırıldı.",
+                    title="🎉 İtirazınız Kabul Edildi!",
+                    message=msg,
                     is_read=False,
                     created_at=datetime.utcnow()
                 )
                 db.add(notification)
                 
             else:  # reject
-                # İtiraz reddedildi - fraud kesinleşti
+                # İtiraz reddedildi - fraud kesinleşti - VATANDAş KAYBETTİ
                 appeal.status = "rejected"
                 appeal.admin_decision = "İtiraz reddedildi, fraud kararı kesinleşti"
                 appeal.admin_wallet = admin_wallet
                 appeal.resolved_at = datetime.utcnow()
                 
+                # Kullanıcının fraud uyarı hakkını düşür ve blacklist kontrolü
+                citizen_wallet_normalized = normalize_wallet_address(appeal.citizen_wallet)
+                user = db.query(User).filter(User.wallet_address == citizen_wallet_normalized).first()
+                
+                import logging
+                logging.info(f"Fraud reject - looking for user with wallet: {citizen_wallet_normalized}")
+                
+                is_blacklisted = False
+                remaining_warnings = 0
+                
+                if not user:
+                    # Kullanıcı yoksa oluştur
+                    logging.warning(f"User not found, creating new user: {citizen_wallet_normalized}")
+                    user = User(wallet_address=citizen_wallet_normalized, recycling_fraud_warnings_remaining=2)
+                    db.add(user)
+                    db.flush()
+                
+                # Hakkı düşür
+                if user.recycling_fraud_warnings_remaining > 0:
+                    user.recycling_fraud_warnings_remaining -= 1
+                    logging.info(f"Decremented warnings to: {user.recycling_fraud_warnings_remaining}")
+                remaining_warnings = user.recycling_fraud_warnings_remaining
+                
+                # Hak kalmadıysa kara listeye al
+                if remaining_warnings <= 0:
+                    user.is_recycling_blacklisted = True
+                    is_blacklisted = True
+                    logging.info(f"User blacklisted: {citizen_wallet_normalized}")
+                
+                # Blockchain üzerinde ceza uygula
+                penalty_tx_hash = None
+                try:
+                    from services.blockchain_service import blockchain_service
+                    penalty_tx_hash = blockchain_service.penalize_user_deposit(
+                        appeal.citizen_wallet,
+                        25,  # %25 ceza
+                        f"Fraud appeal rejected - declaration #{appeal.declaration_id}"
+                    )
+                except Exception as blockchain_err:
+                    # Blockchain hatası - loglama yap ama işlemi iptal etme
+                    import logging
+                    logging.warning(f"Blockchain penalty failed: {blockchain_err}")
+                
                 # Vatandaşa bildirim
+                if is_blacklisted:
+                    penalty_msg = "⛔ KARA LİSTEYE ALINDINIZ! Fraud itirazınız reddedildi ve tüm fraud haklarınız tükendi. Geri dönüşüm beyan hizmetinden men edildiniz. Durumunuzu çözmek için belediye ile iletişime geçin."
+                else:
+                    penalty_msg = f"Fraud itirazınız reddedildi. Fraud kararı kesinleşti. Kalan hakkınız: {remaining_warnings}"
+                    if penalty_tx_hash:
+                        penalty_msg += f" Ceza uygulandı (TX: {penalty_tx_hash[:10]}...)"
+                
                 notification = Notification(
-                    wallet_address=appeal.citizen_wallet,
-                    notification_type="fraud_appeal_rejected",
-                    title="İtirazınız Reddedildi",
-                    message="Fraud itirazınız yönetici tarafından reddedildi. Fraud kararı kesinleşti.",
+                    wallet_address=normalize_wallet_address(appeal.citizen_wallet),
+                    notification_type="fraud_appeal_rejected" if not is_blacklisted else "blacklisted",
+                    title="⛔ Kara Listeye Alındınız" if is_blacklisted else "❌ İtirazınız Reddedildi",
+                    message=penalty_msg,
                     is_read=False,
                     created_at=datetime.utcnow()
                 )

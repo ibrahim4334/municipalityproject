@@ -31,6 +31,9 @@ export default function WaterMeterUpload() {
   const [manualMeterNumber, setManualMeterNumber] = useState("");
   const [manualConsumption, setManualConsumption] = useState("");
 
+  // Fatura sonucu
+  const [billResult, setBillResult] = useState(null);
+
   // Yanlış sayaç uyarısı (sayaç numarası eşleşmedi)
   const [meterMismatch, setMeterMismatch] = useState(null);
 
@@ -359,7 +362,17 @@ export default function WaterMeterUpload() {
           await tx.wait();
         }
 
-        setStatus("💧 Manuel giriş başarıyla kaydedildi! ⚠️ Fiziksel kontrol gerekebilir.");
+        setStatus("💧 Manuel giriş başarıyla kaydedildi! Fatura bilgileri aşağıda.");
+
+        // Backend'den gelen fatura verilerini kullan
+        setBillResult({
+          meterNumber: data.meter_number || manualMeterNumber,
+          consumption: data.consumption || 0,
+          pricePerTon: 10,
+          totalAmount: data.bill_amount || 0,
+          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('tr-TR')
+        });
+
         setShowManualEntry(false);
         setManualMeterNumber("");
         setManualConsumption("");
@@ -387,6 +400,73 @@ export default function WaterMeterUpload() {
   return (
     <div style={{ border: "1px solid #ccc", padding: "20px", borderRadius: "8px" }}>
       <h3>📸 Su Sayacı Fotoğrafı Çek</h3>
+
+      {/* Fatura Sonucu Gösterimi */}
+      {billResult && (
+        <div style={{
+          padding: "20px",
+          backgroundColor: "#e8f5e9",
+          borderRadius: "8px",
+          marginBottom: "20px",
+          border: "2px solid #4caf50"
+        }}>
+          <h4 style={{ color: "#2e7d32", marginTop: 0 }}>
+            💧 Fatura Bilgileri
+          </h4>
+          <div style={{ display: "grid", gap: "10px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>Sayaç No:</span>
+              <strong>{billResult.meterNumber}</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>Tüketim:</span>
+              <strong>{billResult.consumption} m³</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>Birim Fiyat:</span>
+              <strong>{billResult.pricePerTon} TL/m³</strong>
+            </div>
+            <hr style={{ border: "none", borderTop: "1px solid #a5d6a7" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "18px" }}>
+              <span>Toplam Tutar:</span>
+              <strong style={{ color: "#1b5e20" }}>{billResult.totalAmount} TL</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#666" }}>
+              <span>Son Ödeme Tarihi:</span>
+              <span>{billResult.dueDate}</span>
+            </div>
+          </div>
+
+          <h5 style={{ marginTop: "20px", marginBottom: "10px" }}>💳 Ödeme Kanalları</h5>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <a href="https://www.turkiye.gov.tr" target="_blank" rel="noopener noreferrer"
+              style={{ color: "#1976d2", textDecoration: "none" }}>
+              🌐 e-Devlet Kapısı
+            </a>
+            <a href="https://ebelediye.gov.tr" target="_blank" rel="noopener noreferrer"
+              style={{ color: "#1976d2", textDecoration: "none" }}>
+              🏛️ e-Belediye Portalı
+            </a>
+            <span style={{ color: "#666" }}>🏧 ATM ve Banka Şubeleri</span>
+            <span style={{ color: "#666" }}>📱 Belediye Mobil Uygulaması</span>
+          </div>
+
+          <button
+            onClick={() => setBillResult(null)}
+            style={{
+              marginTop: "15px",
+              padding: "10px 20px",
+              backgroundColor: "#4caf50",
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer"
+            }}
+          >
+            ✅ Tamam
+          </button>
+        </div>
+      )}
 
       {/* Manuel Giriş Modu */}
       {showManualEntry && (
@@ -680,6 +760,25 @@ export default function WaterMeterUpload() {
             📷 Kamerayı Aç
           </button>
 
+          {/* Manuel Giriş Butonu - hemen erişilebilir */}
+          <button
+            onClick={() => setShowManualEntry(true)}
+            disabled={loading || showManualEntry}
+            style={{
+              marginLeft: "10px",
+              padding: "12px 24px",
+              backgroundColor: "#ff9800",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading ? 0.6 : 1,
+              fontSize: "16px"
+            }}
+          >
+            📝 Manuel Giriş
+          </button>
+
           {/* Uyarı Mesajları */}
           <div style={{
             marginTop: "12px",
@@ -692,9 +791,8 @@ export default function WaterMeterUpload() {
               ⚠️ Önemli Uyarılar:
             </p>
             <ul style={{ margin: 0, paddingLeft: "20px", color: "#666", fontSize: "13px" }}>
-              <li>Galeriden fotoğraf yüklenemez - anlık çekim zorunludur</li>
-              <li>Lütfen eski fotoğraflardan fotoğraf çekmeye çalışmayın</li>
-              <li>Fotoğraf manipülasyonu tespit edilirse fraud olarak işaretlenir</li>
+              <li>Fotoğraf yüklemesi tercih edilir (daha hızlı onay)</li>
+              <li>Manuel giriş fiziksel kontrol için işaretlenir</li>
               <li>Sayaç numarası net görünür olmalıdır</li>
             </ul>
           </div>

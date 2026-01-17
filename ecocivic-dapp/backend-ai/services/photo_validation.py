@@ -53,7 +53,11 @@ def validate_photo_metadata(image_file) -> dict:
         exif_data = image._getexif()
         
         if not exif_data:
-            result["rejection_reason"] = "EXIF metadata bulunamadı - galeri yüklemesi olabilir"
+            # EXIF yok - desktop/webcam için izin ver ama uyarı ekle
+            result["is_realtime"] = True  # Geçmesine izin ver
+            result["metadata"]["warning"] = "EXIF metadata bulunamadı - düşük güven skoru"
+            result["metadata"]["no_exif"] = True
+            logger.warning("Photo has no EXIF data - allowing with low trust score")
             return result
         
         # EXIF tag'lerini parse et

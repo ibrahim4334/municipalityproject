@@ -19,6 +19,12 @@ export default function StaffDashboard() {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState(null);
 
+    // Modal state for rejection/fraud reason
+    const [showReasonModal, setShowReasonModal] = useState(false);
+    const [modalType, setModalType] = useState(null); // 'reject' or 'fraud'
+    const [modalTargetId, setModalTargetId] = useState(null);
+    const [reasonText, setReasonText] = useState("");
+
     useEffect(() => {
         if (account) {
             loadData();
@@ -334,10 +340,10 @@ export default function StaffDashboard() {
                                                 </button>
                                                 <button
                                                     onClick={() => {
-                                                        const reason = prompt("Red sebebi (vatandaşa bildirilecek):");
-                                                        if (reason !== null) {
-                                                            rejectRecycling(sub.id, reason || "Beyan reddedildi", false);
-                                                        }
+                                                        setModalType('reject');
+                                                        setModalTargetId(sub.id);
+                                                        setReasonText('');
+                                                        setShowReasonModal(true);
                                                     }}
                                                     style={styles.rejectBtn}
                                                     title="Beyanı reddet"
@@ -346,9 +352,10 @@ export default function StaffDashboard() {
                                                 </button>
                                                 <button
                                                     onClick={() => {
-                                                        if (confirm("Fraud olarak işaretlenecek. Yöneticiye bildirilecek. Emin misiniz?")) {
-                                                            rejectRecycling(sub.id, "Fraud tespiti - yönetici incelemesi bekleniyor", true);
-                                                        }
+                                                        setModalType('fraud');
+                                                        setModalTargetId(sub.id);
+                                                        setReasonText('');
+                                                        setShowReasonModal(true);
                                                     }}
                                                     style={styles.fraudBtn}
                                                     title="Fraud olarak işaretle (Yöneticiye gider)"
@@ -369,6 +376,51 @@ export default function StaffDashboard() {
             <button onClick={loadData} style={styles.refreshBtn}>
                 🔄 Yenile
             </button>
+
+            {/* Reason Modal */}
+            {showReasonModal && (
+                <div style={styles.modalOverlay}>
+                    <div style={styles.modal}>
+                        <h3 style={styles.modalTitle}>
+                            {modalType === 'fraud' ? '🚨 Fraud Sebebi' : '❌ Red Sebebi'}
+                        </h3>
+                        <p style={styles.modalDesc}>
+                            {modalType === 'fraud'
+                                ? 'Fraud işaretleme sebebini yazın. Bu beyan yönetici onayına gönderilecek.'
+                                : 'Red sebebini yazın. Bu sebep vatandaşa bildirilecek.'}
+                        </p>
+                        <textarea
+                            value={reasonText}
+                            onChange={(e) => setReasonText(e.target.value)}
+                            placeholder={modalType === 'fraud' ? 'Fraud sebebi...' : 'Red sebebi...'}
+                            style={styles.modalTextarea}
+                            rows={4}
+                        />
+                        <div style={styles.modalActions}>
+                            <button
+                                onClick={() => {
+                                    setShowReasonModal(false);
+                                    setReasonText('');
+                                }}
+                                style={styles.modalCancelBtn}
+                            >
+                                İptal
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const reason = reasonText.trim() || (modalType === 'fraud' ? 'Fraud tespiti' : 'Beyan reddedildi');
+                                    rejectRecycling(modalTargetId, reason, modalType === 'fraud');
+                                    setShowReasonModal(false);
+                                    setReasonText('');
+                                }}
+                                style={modalType === 'fraud' ? styles.modalFraudBtn : styles.modalConfirmBtn}
+                            >
+                                {modalType === 'fraud' ? '🚨 Fraud Olarak İşaretle' : '❌ Reddet'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -555,5 +607,73 @@ const styles = {
         display: "flex",
         gap: "4px",
         verticalAlign: "middle"
+    },
+    // Modal styles
+    modalOverlay: {
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000
+    },
+    modal: {
+        backgroundColor: "white",
+        padding: "24px",
+        borderRadius: "12px",
+        width: "90%",
+        maxWidth: "450px",
+        boxShadow: "0 10px 40px rgba(0,0,0,0.3)"
+    },
+    modalTitle: {
+        margin: "0 0 12px 0",
+        fontSize: "18px"
+    },
+    modalDesc: {
+        color: "#666",
+        fontSize: "14px",
+        marginBottom: "16px"
+    },
+    modalTextarea: {
+        width: "100%",
+        padding: "12px",
+        border: "1px solid #ddd",
+        borderRadius: "8px",
+        fontSize: "14px",
+        resize: "vertical",
+        boxSizing: "border-box"
+    },
+    modalActions: {
+        display: "flex",
+        gap: "12px",
+        marginTop: "16px",
+        justifyContent: "flex-end"
+    },
+    modalCancelBtn: {
+        padding: "10px 20px",
+        border: "1px solid #ddd",
+        background: "white",
+        borderRadius: "6px",
+        cursor: "pointer"
+    },
+    modalConfirmBtn: {
+        padding: "10px 20px",
+        backgroundColor: "#9e9e9e",
+        color: "white",
+        border: "none",
+        borderRadius: "6px",
+        cursor: "pointer"
+    },
+    modalFraudBtn: {
+        padding: "10px 20px",
+        backgroundColor: "#f44336",
+        color: "white",
+        border: "none",
+        borderRadius: "6px",
+        cursor: "pointer"
     }
 };

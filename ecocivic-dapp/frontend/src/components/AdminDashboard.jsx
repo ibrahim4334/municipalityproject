@@ -122,13 +122,17 @@ export default function AdminDashboard() {
             });
 
             if (response.ok) {
+                // Hemen listeden kaldır (UI güncelleme)
+                setAppeals(prev => prev.filter(a => a.id !== appealId));
+
                 setMessage({
                     type: 'success',
                     text: decision === 'approve'
-                        ? '✅ İtiraz kabul edildi, fraud kararı kaldırıldı'
-                        : '❌ İtiraz reddedildi, fraud kararı onaylandı'
+                        ? '✅ İtiraz kabul edildi, vatandaşa token verildi'
+                        : '❌ İtiraz reddedildi, fraud kararı kesinleşti'
                 });
-                loadAppeals();
+
+                // Arka planda istatistikleri güncelle
                 loadStats();
             } else {
                 // Demo mode - simulate success
@@ -274,13 +278,13 @@ export default function AdminDashboard() {
                 <TableContainer component={Paper}>
                     <Table>
                         <TableHead>
-                            <TableRow sx={{ bgcolor: 'grey.100' }}>
-                                <TableCell><strong>Vatandaş</strong></TableCell>
-                                <TableCell><strong>Tür</strong></TableCell>
-                                <TableCell><strong>Fraud Sebebi</strong></TableCell>
-                                <TableCell><strong>İtiraz Açıklaması</strong></TableCell>
-                                <TableCell><strong>Tarih</strong></TableCell>
-                                <TableCell align="center"><strong>Karar</strong></TableCell>
+                            <TableRow sx={{ bgcolor: '#1976d2' }}>
+                                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Vatandaş</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tür</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Fraud Sebebi</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>İtiraz Açıklaması</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tarih</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Karar</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>

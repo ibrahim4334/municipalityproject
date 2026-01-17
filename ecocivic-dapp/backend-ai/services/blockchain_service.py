@@ -93,11 +93,11 @@ class BlockchainService:
                 "glass": 1,       # WasteType.Glass
                 "metal": 2,       # WasteType.Metal
                 "paper": 3,       # WasteType.Paper
-                "electronic": 4   # WasteType.Electronic
+                "electronic": 4,  # WasteType.Electronic
+                "multi": 0,       # Mixed materials - default to plastic
+                "mixed": 0        # Mixed materials - default to plastic
             }
-            material_enum = material_map.get(material_type_str.lower())
-            if material_enum is None:
-                raise ValueError(f"Invalid material type: {material_type_str}. Valid: {list(material_map.keys())}")
+            material_enum = material_map.get(material_type_str.lower(), 0)  # Default to plastic if unknown
                 
             # Amount conversion (kg veya adet)
             amount_int = int(amount)

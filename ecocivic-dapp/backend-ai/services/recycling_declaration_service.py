@@ -183,7 +183,7 @@ class RecyclingDeclarationService:
             }
     
     def mark_fraud(self, declaration_id: int, admin_wallet: str, reason: str = "") -> Dict:
-        """Beyanı fraud olarak işaretle"""
+        """Beyanı fraud olarak işaretle ve yönetici onayına gönder"""
         with get_db() as db:
             declaration = db.query(RecyclingDeclaration).filter(
                 RecyclingDeclaration.id == declaration_id
@@ -192,26 +192,25 @@ class RecyclingDeclarationService:
             if not declaration:
                 return {"success": False, "message": "Beyan bulunamadı"}
             
+            # Fraud olarak işaretle ama admin onayı bekle
             declaration.admin_approval_status = "fraud"
             declaration.admin_approved_by = admin_wallet
             declaration.is_fraud = True
-            declaration.fraud_reason = reason or "Admin tarafından fraud olarak işaretlendi"
+            declaration.fraud_reason = reason or "Personel tarafından fraud olarak işaretlendi"
             declaration.processed_at = datetime.utcnow()
             
-            # Kullanıcının fraud hakkını düşür
-            user = db.query(User).filter(User.wallet_address == declaration.wallet_address).first()
-            if user and user.recycling_fraud_warnings_remaining > 0:
-                user.recycling_fraud_warnings_remaining -= 1
+            # NOT: Kullanıcının fraud hakkı HENÜZ düşürülmez!
+            # Admin onaylarsa (fraud kesinleşirse) o zaman düşürülür
+            # Admin reddederse (vatandaş haklı) o zaman tokenlar verilir
             
             db.commit()
             
-            logger.warning(f"Declaration {declaration_id} marked as fraud by {admin_wallet}")
+            logger.warning(f"Declaration {declaration_id} marked as fraud by {admin_wallet} - awaiting admin decision")
             
             return {
                 "success": True,
-                "message": "Beyan fraud olarak işaretlendi",
-                "wallet_address": declaration.wallet_address,
-                "remaining_warnings": user.recycling_fraud_warnings_remaining if user else 0
+                "message": "Beyan fraud olarak işaretlendi ve yönetici onayına gönderildi",
+                "wallet_address": declaration.wallet_address
             }
     
     def expire_qr(self, qr_token_id: str) -> Dict:

@@ -5,9 +5,14 @@ import RecyclingQRWithTimer from '../components/RecyclingQRWithTimer';
 import { useWallet } from '../context/WalletContext';
 
 const QR_STORAGE_KEY = 'ecocivic_active_qr';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 function Recycling() {
     const { account, isCorrectNetwork, error } = useWallet();
+
+    // Blacklist state
+    const [isBlacklisted, setIsBlacklisted] = useState(false);
+    const [warningsRemaining, setWarningsRemaining] = useState(2);
 
     // localStorage'dan QR verisini yükle
     const [qrResult, setQrResult] = useState(() => {
@@ -27,6 +32,26 @@ function Recycling() {
         }
         return null;
     });
+
+    // Check blacklist status on mount
+    useEffect(() => {
+        const checkBlacklist = async () => {
+            if (!account) return;
+            try {
+                const res = await fetch(`${API_URL}/api/user/fraud-warnings/${account}`, {
+                    headers: { 'X-Wallet-Address': account }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    setIsBlacklisted(data.is_recycling_blacklisted || false);
+                    setWarningsRemaining(data.recycling_warnings_remaining || 0);
+                }
+            } catch (err) {
+                console.error('Error checking blacklist:', err);
+            }
+        };
+        checkBlacklist();
+    }, [account]);
 
     const handleQRGenerated = (result) => {
         setQrResult(result);
@@ -54,6 +79,45 @@ function Recycling() {
         return qrResult.declared_types;
     };
 
+    // Blacklist overlay
+    if (isBlacklisted) {
+        return (
+            <Container maxWidth="lg">
+                <Box sx={{
+                    py: 4,
+                    minHeight: '60vh',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }}>
+                    <Paper sx={{
+                        p: 5,
+                        textAlign: 'center',
+                        maxWidth: 500,
+                        backgroundColor: '#ffebee',
+                        border: '2px solid #f44336'
+                    }}>
+                        <Typography variant="h2" sx={{ mb: 2 }}>⛔</Typography>
+                        <Typography variant="h5" color="error" gutterBottom>
+                            Kara Listeye Alındınız
+                        </Typography>
+                        <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                            Hesabınız geri dönüşüm hizmetinden men edilmiştir.
+                            Fraud uyarı haklarınız tükenmiştir.
+                        </Typography>
+                        <Alert severity="error" sx={{ textAlign: 'left' }}>
+                            <AlertTitle>Çözüm İçin</AlertTitle>
+                            Lütfen belediye ile iletişime geçin veya belediyeye şahsen başvurun.
+                            <br /><br />
+                            📞 Telefon: 0312 XXX XX XX<br />
+                            📍 Adres: Belediye Hizmet Binası
+                        </Alert>
+                    </Paper>
+                </Box>
+            </Container>
+        );
+    }
+
     return (
         <Container maxWidth="lg">
             <Box sx={{ py: 4 }}>
@@ -69,6 +133,15 @@ function Recycling() {
                     ⏰ <strong>Önemli:</strong> QR kodunuz oluşturulduktan sonra <strong>3 saat</strong> içinde geri dönüşüm merkezinde okutulmalıdır.
                     Süre dolduğunda QR geçersiz olur ve yeni beyan oluşturmanız gerekir.
                 </Alert>
+
+                {/* Fraud warning display */}
+                {warningsRemaining < 2 && (
+                    <Alert severity="warning" sx={{ mb: 3 }}>
+                        <AlertTitle>⚠️ Dikkat</AlertTitle>
+                        Kalan fraud hakkınız: <strong>{warningsRemaining}</strong>.
+                        {warningsRemaining === 1 && " Bir sonraki fraud tespitinde kara listeye alınacaksınız!"}
+                    </Alert>
+                )}
 
                 {error && (
                     <Alert severity="error" sx={{ mb: 3 }}>

@@ -14,6 +14,7 @@ import { getBeltBalance } from '../services/contractService';
 import UserRoleSwitcher from '../components/UserRoleSwitcher';
 import StaffDashboard from '../components/StaffDashboard';
 import AdminDashboard from '../components/AdminDashboard';
+import NotificationBell from '../components/NotificationBell';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -136,9 +137,12 @@ function Dashboard() {
             </Grid>
 
             <Grid item xs={12}>
-                <Typography variant="h4" gutterBottom>
-                    🏠 Vatandaş Paneli
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Typography variant="h4" gutterBottom>
+                        🏠 Vatandaş Paneli
+                    </Typography>
+                    <NotificationBell />
+                </Box>
             </Grid>
 
             {/* Fraud Uyarısı */}
@@ -184,6 +188,53 @@ function Dashboard() {
                                 size="small"
                             />
                         </Box>
+
+                        {/* Token Kullanım Seçenekleri */}
+                        {parseFloat(beltBalance) > 0 && (
+                            <>
+                                <Divider sx={{ my: 2 }} />
+                                <Typography variant="subtitle2" gutterBottom sx={{ color: 'text.secondary' }}>
+                                    💰 Tokenleri Kullan:
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        disabled
+                                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                                    >
+                                        💧 Su Faturasından Düş
+                                    </Button>
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        disabled
+                                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                                    >
+                                        🚌 Yolcu Kartına Ekle
+                                    </Button>
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        disabled
+                                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                                    >
+                                        🛒 Belediye Marketinde Kullan
+                                    </Button>
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        disabled
+                                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                                    >
+                                        🦊 MetaMask'a Transfer Et
+                                    </Button>
+                                </Box>
+                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                    * Bu özellikler yakında aktif edilecektir
+                                </Typography>
+                            </>
+                        )}
                     </CardContent>
                 </Card>
             </Grid>

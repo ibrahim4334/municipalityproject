@@ -38,6 +38,9 @@ class User(Base):
     # Fraud hak sistemi - geri dönüşümde 2 hak
     recycling_fraud_warnings_remaining = Column(Integer, default=2)
     water_fraud_warnings_remaining = Column(Integer, default=2)
+    # Blacklist flags
+    is_recycling_blacklisted = Column(Boolean, default=False)
+    is_water_blacklisted = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)

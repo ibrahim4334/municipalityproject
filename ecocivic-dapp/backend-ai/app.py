@@ -336,28 +336,47 @@ def manual_water_entry():
             # Kullanıcıyı bul veya oluştur
             user = db.query(User).filter(User.wallet_address == wallet_address).first()
             if not user:
-                user = User(wallet_address=wallet_address, role="CITIZEN")
+                user = User(wallet_address=wallet_address)
                 db.add(user)
                 db.flush()
             
+            # Önceki okumayı al
+            previous_reading = db.query(WaterMeterReading).filter(
+                WaterMeterReading.meter_no == meter_number,
+                WaterMeterReading.wallet_address == wallet_address
+            ).order_by(WaterMeterReading.created_at.desc()).first()
+            
+            previous_index = previous_reading.reading_index if previous_reading else 0
+            
+            # Tüketimi hesapla
+            consumption = max(0, current_index - previous_index)
+            
+            # Fatura hesapla (10 TL/m³)
+            bill_amount = consumption * 10
+            
             # Manuel giriş kaydı oluştur
             reading = WaterMeterReading(
-                user_id=user.id,
+                meter_no=meter_number,
                 wallet_address=wallet_address,
-                current_index=current_index,
-                consumption=0,  # Önceki okuma olmadan hesaplanamaz
-                is_anomaly=False,
-                requires_inspection=True,  # Manuel giriş = fiziksel kontrol gerekli
-                reading_date=datetime.utcnow()
+                reading_index=int(current_index),
+                previous_index=int(previous_index),
+                consumption_m3=consumption,
+                bill_amount=bill_amount,
+                is_valid=True,
+                anomaly_detected=False,
+                admin_approval_status="pending"  # Manuel giriş fiziksel kontrol gerektirir
             )
             db.add(reading)
             db.commit()
             
-            logger.info(f"Manuel giriş kaydedildi: {wallet_address}, değer: {current_index}")
+            logger.info(f"Manuel giriş kaydedildi: {wallet_address}, sayaç: {meter_number}, değer: {current_index}, tüketim: {consumption} m³, fatura: {bill_amount} TL")
         
         return jsonify({
             "valid": True,
             "current_index": current_index,
+            "previous_index": previous_index,
+            "consumption": consumption,
+            "bill_amount": bill_amount,
             "meter_number": meter_number,
             "manual_entry": True,
             "requires_inspection": True,
@@ -738,6 +757,8 @@ def approve_declaration(declaration_id):
         
         if result["success"]:
             # Blockchain'de ödül ver
+            tx_hash = None
+            blockchain_error = None
             try:
                 tx_hash = blockchain_service.reward_recycling(
                     result["wallet_address"],
@@ -748,7 +769,36 @@ def approve_declaration(declaration_id):
                 result["transaction_hash"] = tx_hash
             except Exception as e:
                 logger.error(f"Blockchain reward failed: {e}")
-                result["blockchain_error"] = str(e)
+                blockchain_error = str(e)
+                result["blockchain_error"] = blockchain_error
+            
+            # Vatandaşa her zaman bildirim gönder (blockchain başarılı/başarısız)
+            from database.db import get_db
+            from database.models import Notification
+            from datetime import datetime
+            
+            # Normalize wallet for consistent storage
+            citizen_wallet = normalize_wallet_address(result["wallet_address"])
+            
+            with get_db() as db:
+                if tx_hash:
+                    msg = f"Geri dönüşüm beyanınız onaylandı. {result['reward_amount']} BELT hesabınıza aktarıldı. TX: {tx_hash[:10]}..."
+                    title = "Beyanınız Onaylandı! 🎉"
+                else:
+                    msg = f"Geri dönüşüm beyanınız onaylandı. {result['reward_amount']} BELT kazandınız. Token transferi daha sonra işlenecek."
+                    title = "Beyanınız Onaylandı ✅"
+                
+                notification = Notification(
+                    wallet_address=citizen_wallet,
+                    notification_type="declaration_approved",
+                    title=title,
+                    message=msg,
+                    is_read=False,
+                    created_at=datetime.utcnow()
+                )
+                db.add(notification)
+                db.commit()
+                logger.info(f"Notification sent to {citizen_wallet}: {title}")
         
         return jsonify(result), 200 if result["success"] else 400
         
@@ -780,22 +830,21 @@ def reject_declaration(declaration_id):
             if not declaration:
                 return error_response("Beyan bulunamadı", 404)
             
-            if declaration.status != "pending":
-                return error_response(f"Beyan zaten işlenmiş: {declaration.status}", 400)
+            if declaration.admin_approval_status != "pending":
+                return error_response(f"Beyan zaten işlenmiş: {declaration.admin_approval_status}", 400)
             
             # Beyanı reddet
-            declaration.status = "rejected"
-            declaration.reviewed_by = staff_wallet
-            declaration.reviewed_at = datetime.utcnow()
-            declaration.rejection_reason = reason
+            declaration.admin_approval_status = "rejected"
+            declaration.admin_approved_by = staff_wallet
             
             # Vatandaşa bildirim oluştur (notifications tablosuna kaydet)
             try:
                 from database.models import Notification
+                citizen_wallet = normalize_wallet_address(declaration.wallet_address)
                 notification = Notification(
-                    wallet_address=declaration.wallet_address,
+                    wallet_address=citizen_wallet,
                     notification_type="declaration_rejected",
-                    title="Beyanınız Reddedildi",
+                    title="❌ Beyanınız Reddedildi",
                     message=f"Geri dönüşüm beyanınız (ID: {declaration_id}) reddedildi. Sebep: {reason}",
                     is_read=False,
                     created_at=datetime.utcnow()
@@ -916,6 +965,8 @@ def get_user_fraud_warnings(wallet_address):
                     "success": True,
                     "recycling_warnings_remaining": 2,
                     "water_warnings_remaining": 2,
+                    "is_recycling_blacklisted": False,
+                    "is_water_blacklisted": False,
                     "has_pending_fraud": False
                 }), 200
             
@@ -923,12 +974,118 @@ def get_user_fraud_warnings(wallet_address):
                 "success": True,
                 "recycling_warnings_remaining": user.recycling_fraud_warnings_remaining,
                 "water_warnings_remaining": user.water_fraud_warnings_remaining,
+                "is_recycling_blacklisted": user.is_recycling_blacklisted or False,
+                "is_water_blacklisted": user.is_water_blacklisted or False,
                 "has_pending_fraud": False  # TODO: Check pending fraud
             }), 200
             
     except Exception as e:
         logger.exception("Error getting user fraud warnings")
         return error_response("Failed to get fraud warnings", 500, {"details": str(e) if DEBUG else None})
+
+
+# ==============================
+# NOTIFICATION ENDPOINTS
+# ==============================
+
+@app.route("/api/notifications/<wallet_address>", methods=["GET"])
+@require_auth
+@limiter.limit("30 per minute")
+def get_user_notifications(wallet_address):
+    """
+    Kullanıcının bildirimlerini getir
+    """
+    try:
+        if not validate_wallet_address(wallet_address):
+            return error_response("Invalid wallet address format", 400)
+        
+        wallet_address = normalize_wallet_address(wallet_address)
+        
+        from database.db import get_db
+        from database.models import Notification
+        
+        with get_db() as db:
+            notifications = db.query(Notification).filter(
+                Notification.wallet_address == wallet_address
+            ).order_by(Notification.created_at.desc()).limit(50).all()
+            
+            unread_count = db.query(Notification).filter(
+                Notification.wallet_address == wallet_address,
+                Notification.is_read == False
+            ).count()
+            
+            return jsonify({
+                "success": True,
+                "notifications": [{
+                    "id": n.id,
+                    "type": n.notification_type,
+                    "title": n.title,
+                    "message": n.message,
+                    "is_read": n.is_read,
+                    "created_at": n.created_at.isoformat() if n.created_at else None
+                } for n in notifications],
+                "unread_count": unread_count
+            }), 200
+            
+    except Exception as e:
+        logger.exception("Error getting notifications")
+        return error_response("Failed to get notifications", 500, {"details": str(e) if DEBUG else None})
+
+
+@app.route("/api/notifications/<int:notification_id>/read", methods=["POST"])
+@require_auth
+@limiter.limit("30 per minute")
+def mark_notification_read(notification_id):
+    """
+    Bildirimi okundu olarak işaretle
+    """
+    try:
+        from database.db import get_db
+        from database.models import Notification
+        
+        with get_db() as db:
+            notification = db.query(Notification).filter(Notification.id == notification_id).first()
+            if not notification:
+                return error_response("Notification not found", 404)
+            
+            notification.is_read = True
+            db.commit()
+            
+            return jsonify({"success": True, "message": "Marked as read"}), 200
+            
+    except Exception as e:
+        logger.exception("Error marking notification as read")
+        return error_response("Failed to mark notification", 500, {"details": str(e) if DEBUG else None})
+
+
+@app.route("/api/notifications/<wallet_address>/read-all", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def mark_all_notifications_read(wallet_address):
+    """
+    Tüm bildirimleri okundu olarak işaretle
+    """
+    try:
+        if not validate_wallet_address(wallet_address):
+            return error_response("Invalid wallet address format", 400)
+        
+        wallet_address = normalize_wallet_address(wallet_address)
+        
+        from database.db import get_db
+        from database.models import Notification
+        
+        with get_db() as db:
+            updated = db.query(Notification).filter(
+                Notification.wallet_address == wallet_address,
+                Notification.is_read == False
+            ).update({"is_read": True})
+            db.commit()
+            
+            return jsonify({"success": True, "updated": updated}), 200
+            
+    except Exception as e:
+        logger.exception("Error marking all notifications as read")
+        return error_response("Failed to mark notifications", 500, {"details": str(e) if DEBUG else None})
 
 
 if __name__ == "__main__":

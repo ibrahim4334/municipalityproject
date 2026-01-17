@@ -124,7 +124,42 @@ async function main() {
   console.log("WaterBilling:", await waterBilling.getAddress());
   console.log("WaterBillingFraudManager:", await fraudManager.getAddress());
   console.log("=============================================================");
+
+  // 7. Grant backend wallet (Hardhat account #1) the necessary roles
+  console.log("\n-------------------------------------------------------------");
+  console.log("Granting roles to backend wallet (for API operations)...");
+  console.log("-------------------------------------------------------------");
+
+  // Backend wallet - Hardhat account #0 (same as deployer)
+  // This is the wallet configured in backend-ai/.env
+  const BACKEND_WALLET = deployer.address;
+
+  // Grant MUNICIPALITY_STAFF_ROLE on RecyclingRewards
+  const MUNICIPALITY_STAFF_ROLE = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("MUNICIPALITY_STAFF_ROLE"));
+  await recyclingRewards.grantRole(MUNICIPALITY_STAFF_ROLE, BACKEND_WALLET);
+  console.log("MUNICIPALITY_STAFF_ROLE granted to backend wallet on RecyclingRewards");
+
+  // Grant SERVICE_OPERATOR_ROLE on RecyclingRewards
+  const SERVICE_OPERATOR_ROLE = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("SERVICE_OPERATOR_ROLE"));
+  await recyclingRewards.grantRole(SERVICE_OPERATOR_ROLE, BACKEND_WALLET);
+  console.log("SERVICE_OPERATOR_ROLE granted to backend wallet on RecyclingRewards");
+
+  // Grant SERVICE_OPERATOR_ROLE on WaterBilling
+  await waterBilling.grantRole(SERVICE_OPERATOR_ROLE, BACKEND_WALLET);
+  console.log("SERVICE_OPERATOR_ROLE granted to backend wallet on WaterBilling");
+
+  // Grant AI_VERIFIER_ROLE on WaterBilling (for fraud evidence submission)
+  const AI_VERIFIER_ROLE = hre.ethers.keccak256(hre.ethers.toUtf8Bytes("AI_VERIFIER_ROLE"));
+  try {
+    await waterBilling.grantRole(AI_VERIFIER_ROLE, BACKEND_WALLET);
+    console.log("AI_VERIFIER_ROLE granted to backend wallet on WaterBilling");
+  } catch (e) {
+    console.log("AI_VERIFIER_ROLE not available on WaterBilling (optional)");
+  }
+
+  console.log("=============================================================");
   console.log("\nUpdate your .env files with these addresses!");
+  console.log("Backend wallet:", BACKEND_WALLET);
 }
 
 main().catch((error) => {

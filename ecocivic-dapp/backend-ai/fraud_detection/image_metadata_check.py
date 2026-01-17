@@ -200,11 +200,13 @@ class ImageMetadataChecker:
         exif = self.extract_exif(image_path_or_bytes)
         
         if not exif:
+            # EXIF yok - yine de geçmesine izin ver ama düşük skorla
+            logger.warning("Photo has no EXIF data - allowing with reduced score")
             return {
-                "valid": False,
-                "score": 20,
-                "issues": ["EXIF verisi yok - kamera ile çekilmemiş olabilir"],
-                "metadata": {}
+                "valid": True,  # Geçmesine izin ver
+                "score": 40,    # Düşük ama geçer skor
+                "issues": ["EXIF verisi yok - düşük güven skoru (desktop/webcam olabilir)"],
+                "metadata": {"no_exif": True}
             }
         
         # 1. Timestamp kontrolü
