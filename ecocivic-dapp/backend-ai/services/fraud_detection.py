@@ -263,23 +263,26 @@ class FraudDetectionService:
         Kullanıcının fraud durumunu getir.
         """
         try:
+            from database.models import User
+            
             with get_db() as db:
+                # Önce kullanıcıyı getir - fraud records olsun veya olmasın
+                user = db.query(User).filter(User.wallet_address == user_address).first()
+                
                 fraud_records = db.query(FraudRecord).filter(
                     FraudRecord.wallet_address == user_address
                 ).order_by(desc(FraudRecord.created_at)).all()
                 
-                if not fraud_records:
-                    return {
-                        "has_fraud": False,
-                        "total_penalties": 0,
-                        "records": []
-                    }
-                
-                total_penalties = sum(r.penalty_amount or 0 for r in fraud_records)
+                total_penalties = sum(r.penalty_amount or 0 for r in fraud_records) if fraud_records else 0
                 
                 return {
-                    "has_fraud": True,
+                    "has_fraud": len(fraud_records) > 0 if fraud_records else False,
                     "total_penalties": total_penalties,
+                    "recycling_warnings_remaining": user.recycling_fraud_warnings_remaining if user else 2,
+                    "water_warnings_remaining": user.water_fraud_warnings_remaining if user else 2,
+                    "is_recycling_blacklisted": user.is_recycling_blacklisted if user else False,
+                    "is_water_blacklisted": user.is_water_blacklisted if user else False,
+                    "pending_reward_balance": user.pending_reward_balance if user else 0,
                     "records": [
                         {
                             "fraud_type": r.fraud_type,
@@ -288,12 +291,22 @@ class FraudDetectionService:
                             "tx_hash": r.transaction_hash
                         }
                         for r in fraud_records
-                    ]
+                    ] if fraud_records else []
                 }
                 
         except Exception as e:
             logger.exception(f"Get fraud status failed: {e}")
-            return {"has_fraud": False, "total_penalties": 0, "records": [], "error": str(e)}
+            return {
+                "has_fraud": False, 
+                "total_penalties": 0, 
+                "records": [], 
+                "recycling_warnings_remaining": 2,
+                "water_warnings_remaining": 2,
+                "is_recycling_blacklisted": False,
+                "is_water_blacklisted": False,
+                "pending_reward_balance": 0,
+                "error": str(e)
+            }
 
 
 # Global instance

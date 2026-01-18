@@ -152,12 +152,17 @@ def admin_stats():
             ).scalar()
             total_rewards = total_rewards_result or 0
             
+            # Bekleyen fraud itirazları
+            from database.models import FraudAppeal
+            pending_appeals = db.query(FraudAppeal).filter(FraudAppeal.status == "pending").count()
+            
             return jsonify({
                 "totalDeclarations": total,
                 "approved": approved,
                 "pending": pending,
                 "fraud": fraud,
-                "totalRewards": int(total_rewards)
+                "totalRewards": int(total_rewards),
+                "pendingAppeals": pending_appeals
             }), 200
     except Exception as e:
         return error_response("Stats alınamadı", 500, {"details": str(e)})
@@ -250,25 +255,19 @@ def decide_fraud_appeal(appeal_id):
                 if user and user.recycling_fraud_warnings_remaining < 2:
                     user.recycling_fraud_warnings_remaining += 1
                 
-                # Blockchain'de token ödülü ver
-                tx_hash = None
+                # ACCUMULATE & CLAIM: Anında transfer yerine bakiyeye ekle
                 if reward_amount > 0:
-                    try:
-                        from services.blockchain_service import blockchain_service
-                        tx_hash = blockchain_service.reward_recycling(
-                            appeal.citizen_wallet,
-                            "multi",
-                            reward_amount,
-                            f"appeal_approved_{appeal.id}"
-                        )
-                    except Exception as blockchain_err:
-                        import logging
-                        logging.warning(f"Blockchain reward failed: {blockchain_err}")
+                    if user: # user zaten yukarıda çekildi
+                         # Ensure we have the latest state if modified elsewhere, but here it's fine
+                         user.pending_reward_balance = (user.pending_reward_balance or 0) + reward_amount
+                         db.add(user) # Explicit add/update
+                         import logging
+                         logging.info(f"Appeal approved. Added {reward_amount} to pending balance for {citizen_wallet_norm}")
                 
                 # Vatandaşa bildirim
-                msg = f"Fraud itirazınız kabul edildi! Beyanınız onaylandı ve {reward_amount} BELT hesabınıza aktarıldı."
-                if tx_hash:
-                    msg += f" TX: {tx_hash[:10]}..."
+                msg = f"Fraud itirazınız kabul edildi! Beyanınız onaylandı ve {reward_amount} BELT birikmiş bakiyenize eklendi."
+                # TX hash yok artık
+
                     
                 notification = Notification(
                     wallet_address=normalize_wallet_address(appeal.citizen_wallet),
@@ -320,11 +319,17 @@ def decide_fraud_appeal(appeal_id):
                 penalty_tx_hash = None
                 try:
                     from services.blockchain_service import blockchain_service
-                    penalty_tx_hash = blockchain_service.penalize_user_deposit(
-                        appeal.citizen_wallet,
-                        25,  # %25 ceza
-                        f"Fraud appeal rejected - declaration #{appeal.declaration_id}"
-                    )
+                    
+                    if is_blacklisted:
+                        # Tam ceza ve smart contract blacklist
+                        penalty_tx_hash = blockchain_service.full_slash_user(appeal.citizen_wallet)
+                    else:
+                        # Kısmi ceza
+                        penalty_tx_hash = blockchain_service.penalize_user_deposit(
+                            appeal.citizen_wallet,
+                            25,  # %25 ceza
+                            f"Fraud appeal rejected - declaration #{appeal.declaration_id}"
+                        )
                 except Exception as blockchain_err:
                     # Blockchain hatası - loglama yap ama işlemi iptal etme
                     import logging

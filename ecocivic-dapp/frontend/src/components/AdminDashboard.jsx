@@ -50,25 +50,9 @@ export default function AdminDashboard() {
             if (response.ok) {
                 const data = await response.json();
                 setStats(data);
-            } else {
-                // Mock data
-                setStats({
-                    totalDeclarations: 15,
-                    approved: 9,
-                    pending: 4,
-                    fraud: 2,
-                    totalRewards: 1250
-                });
             }
         } catch (err) {
-            // Mock data on error
-            setStats({
-                totalDeclarations: 15,
-                approved: 9,
-                pending: 4,
-                fraud: 2,
-                totalRewards: 1250
-            });
+            console.error('Stats loading error:', err);
         }
     };
 
@@ -80,32 +64,9 @@ export default function AdminDashboard() {
             if (response.ok) {
                 const data = await response.json();
                 setAppeals(data.appeals || []);
-            } else {
-                // Mock data
-                setAppeals([
-                    {
-                        id: 1,
-                        wallet: '0xCitizen...001',
-                        type: 'recycling',
-                        reason: 'Beyan edilen miktar gerçek miktarla eşleşmiyor',
-                        appeal_reason: 'Tartı hatalıydı, fotoğraf kanıtım var',
-                        created_at: '2026-01-15T10:30:00',
-                        status: 'pending'
-                    },
-                    {
-                        id: 2,
-                        wallet: '0xCitizen...002',
-                        type: 'water',
-                        reason: 'Sayaç okuma tutarsızlığı',
-                        appeal_reason: 'Su kesintisi nedeniyle düşük tüketim',
-                        created_at: '2026-01-14T14:20:00',
-                        status: 'pending'
-                    }
-                ]);
             }
         } catch (err) {
-            // Mock data
-            setAppeals([]);
+            console.error('Appeals loading error:', err);
         }
     };
 
@@ -118,13 +79,12 @@ export default function AdminDashboard() {
                     'Content-Type': 'application/json',
                     'X-Wallet-Address': account
                 },
-                body: JSON.stringify({ decision }) // 'approve' or 'reject'
+                body: JSON.stringify({ decision })
             });
 
-            if (response.ok) {
-                // Hemen listeden kaldır (UI güncelleme)
-                setAppeals(prev => prev.filter(a => a.id !== appealId));
+            const result = await response.json();
 
+            if (response.ok && result.success) {
                 setMessage({
                     type: 'success',
                     text: decision === 'approve'
@@ -132,26 +92,23 @@ export default function AdminDashboard() {
                         : '❌ İtiraz reddedildi, fraud kararı kesinleşti'
                 });
 
-                // Arka planda istatistikleri güncelle
-                loadStats();
+                // Backend'den güncel verileri çek
+                await loadStats();
+                await loadAppeals();
             } else {
-                // Demo mode - simulate success
-                setAppeals(prev => prev.filter(a => a.id !== appealId));
+                // API hatası
                 setMessage({
-                    type: 'success',
-                    text: decision === 'approve'
-                        ? '✅ İtiraz kabul edildi (Demo)'
-                        : '❌ İtiraz reddedildi (Demo)'
+                    type: 'error',
+                    text: `Hata: ${result.message || 'İşlem başarısız'}`
                 });
+                // Yine de verileri yenile
+                await loadAppeals();
             }
         } catch (err) {
-            // Demo mode
-            setAppeals(prev => prev.filter(a => a.id !== appealId));
+            console.error('Appeal decision error:', err);
             setMessage({
-                type: 'success',
-                text: decision === 'approve'
-                    ? '✅ İtiraz kabul edildi (Demo)'
-                    : '❌ İtiraz reddedildi (Demo)'
+                type: 'error',
+                text: 'Sunucu hatası. Lütfen tekrar deneyin.'
             });
         }
         setLoading(false);

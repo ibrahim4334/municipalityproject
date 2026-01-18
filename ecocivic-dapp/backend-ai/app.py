@@ -77,6 +77,9 @@ def scheduled_cleanup():
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
 
+from services.wallet_routes import wallet_bp
+app.register_blueprint(wallet_bp)
+
 @app.errorhandler(RequestEntityTooLarge)
 def handle_file_too_large(e):
     return error_response("Yüklenen dosya çok büyük (maksimum 5MB).", 413)
@@ -285,6 +288,30 @@ def validate_water_meter():
         "transaction_hash": tx_hash,
         "photo_validated": True
     }
+
+    # Fatura PDF oluştur (valid ise)
+    if is_valid:
+        try:
+            from services.pdf_service import pdf_service
+            
+            # Fatura verileri
+            bill_data = {
+                "meter_no": ocr_result.get("meter_no"),
+                "wallet_address": user_address,
+                "current_index": current_index,
+                "previous_index": history[-1] if history else 0, # Basit mantık
+                "consumption_m3": current_index - (history[-1] if history else 0),
+                "bill_amount": (current_index - (history[-1] if history else 0)) * 10 
+            }
+             # Consumption negatif çıkarsa düzelt (mock data sorunu olmasın)
+            if bill_data["consumption_m3"] < 0:
+                 bill_data["consumption_m3"] = 0
+                 bill_data["bill_amount"] = 0
+            
+            pdf_filename = pdf_service.generate_water_bill(bill_data)
+            response_data["bill_pdf"] = f"/uploads/invoices/{pdf_filename}"
+        except Exception as e:
+            logger.error(f"PDF generation failed: {e}")
     
     # Düşük tüketim uyarısı varsa ekle
     if consumption_warning:
@@ -756,23 +783,13 @@ def approve_declaration(declaration_id):
         result = recycling_declaration_service.approve_declaration(declaration_id, admin_wallet)
         
         if result["success"]:
-            # Blockchain'de ödül ver
-            tx_hash = None
-            blockchain_error = None
-            try:
-                tx_hash = blockchain_service.reward_recycling(
-                    result["wallet_address"],
-                    "multi",  # Çoklu tür
-                    result["reward_amount"],
-                    f"decl_{declaration_id}"
-                )
-                result["transaction_hash"] = tx_hash
-            except Exception as e:
-                logger.error(f"Blockchain reward failed: {e}")
-                blockchain_error = str(e)
-                result["blockchain_error"] = blockchain_error
+            # NOT: Blockchain işlemi artık "Accumulate & Claim" modeline geçti.
+            # Anında transfer yerine pending_reward_balance'a ekleniyor (service içinde).
+            # Kullanıcı daha sonra toplu olarak claim edecek.
             
-            # Vatandaşa her zaman bildirim gönder (blockchain başarılı/başarısız)
+            tx_hash = None 
+            
+            # Vatandaşa bildirim gönder
             from database.db import get_db
             from database.models import Notification
             from datetime import datetime

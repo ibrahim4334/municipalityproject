@@ -22,6 +22,8 @@ function Dashboard() {
     const navigate = useNavigate();
     const { account, signer } = useWallet();
     const [beltBalance, setBeltBalance] = useState('0');
+    const [pendingRewards, setPendingRewards] = useState(0);
+    const [claiming, setClaiming] = useState(false);
     const [openUpload, setOpenUpload] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null);
     const [uploading, setUploading] = useState(false);
@@ -42,10 +44,48 @@ function Dashboard() {
 
     const loadBalance = async () => {
         try {
+            // Blockchain Balance
             const bal = await getBeltBalance(signer, account);
             setBeltBalance(bal);
+
+            // Pending Rewards from Backend
+            const res = await fetch(`${API_URL}/api/wallet/balance/${account}`);
+            if (res.ok) {
+                const data = await res.json();
+                setPendingRewards(data.pending_rewards || 0);
+            }
         } catch (err) {
             console.error('Balance load error:', err);
+        }
+    };
+
+    const handleClaimRewards = async () => {
+        if (!account) return;
+        setClaiming(true);
+        try {
+            const res = await fetch(`${API_URL}/api/wallet/claim`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Wallet-Address': account
+                },
+                body: JSON.stringify({ wallet_address: account })
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                // Refresh balances
+                await loadBalance();
+                alert(`🚀 ${data.claimed_amount} BELT başarıyla cüzdanınıza transfer edildi!`);
+            } else {
+                alert(`Hata: ${data.message || 'Transfer başarısız'}`);
+            }
+        } catch (err) {
+            console.error('Claim error:', err);
+            alert('Transfer sırasında bir hata oluştu.');
+        } finally {
+            setClaiming(false);
         }
     };
 
@@ -171,8 +211,30 @@ function Dashboard() {
                             {beltBalance} BELT
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                            {!account ? "Lütfen cüzdan bağlayın" : "Güncel Bakiye"}
+                            {!account ? "Lütfen cüzdan bağlayın" : "Cüzdan Bakiyesi"}
                         </Typography>
+
+                        {/* Pending Rewards Section */}
+                        {pendingRewards > 0 && (
+                            <Box sx={{ mt: 2, p: 2, bgcolor: '#e3f2fd', borderRadius: 2, border: '1px dashed #2196f3' }}>
+                                <Typography variant="subtitle2" color="primary.dark">
+                                    🎁 Birikmiş Ödüller
+                                </Typography>
+                                <Typography variant="h5" color="primary.main" fontWeight="bold">
+                                    {pendingRewards} BELT
+                                </Typography>
+                                <Button
+                                    variant="contained"
+                                    size="small"
+                                    fullWidth
+                                    sx={{ mt: 1 }}
+                                    onClick={handleClaimRewards}
+                                    disabled={claiming}
+                                >
+                                    {claiming ? "Transfer Ediliyor..." : "Cüzdana Aktar"}
+                                </Button>
+                            </Box>
+                        )}
 
                         {/* Fraud Hak Göstergesi */}
                         <Divider sx={{ my: 2 }} />
@@ -189,52 +251,40 @@ function Dashboard() {
                             />
                         </Box>
 
-                        {/* Token Kullanım Seçenekleri */}
-                        {parseFloat(beltBalance) > 0 && (
-                            <>
-                                <Divider sx={{ my: 2 }} />
-                                <Typography variant="subtitle2" gutterBottom sx={{ color: 'text.secondary' }}>
-                                    💰 Tokenleri Kullan:
-                                </Typography>
-                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                                    <Button
-                                        size="small"
-                                        variant="outlined"
-                                        disabled
-                                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
-                                    >
-                                        💧 Su Faturasından Düş
-                                    </Button>
-                                    <Button
-                                        size="small"
-                                        variant="outlined"
-                                        disabled
-                                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
-                                    >
-                                        🚌 Yolcu Kartına Ekle
-                                    </Button>
-                                    <Button
-                                        size="small"
-                                        variant="outlined"
-                                        disabled
-                                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
-                                    >
-                                        🛒 Belediye Marketinde Kullan
-                                    </Button>
-                                    <Button
-                                        size="small"
-                                        variant="outlined"
-                                        disabled
-                                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
-                                    >
-                                        🦊 MetaMask'a Transfer Et
-                                    </Button>
-                                </Box>
-                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                                    * Bu özellikler yakında aktif edilecektir
-                                </Typography>
-                            </>
-                        )}
+                        {/* Token Kullanım Seçenekleri - Her zaman göster */}
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="subtitle2" gutterBottom sx={{ color: 'text.secondary' }}>
+                            💰 Tokenleri Kullan:
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                disabled
+                                sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                            >
+                                💧 Su Faturasından Düş
+                            </Button>
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                disabled
+                                sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                            >
+                                🚌 Yolcu Kartına Ekle
+                            </Button>
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                disabled
+                                sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                            >
+                                🛒 Belediye Marketinde Kullan
+                            </Button>
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                            * Bu özellikler yakında aktif edilecektir
+                        </Typography>
                     </CardContent>
                 </Card>
             </Grid>

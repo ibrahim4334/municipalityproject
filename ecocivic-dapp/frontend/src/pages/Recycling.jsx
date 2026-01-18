@@ -38,13 +38,13 @@ function Recycling() {
         const checkBlacklist = async () => {
             if (!account) return;
             try {
-                const res = await fetch(`${API_URL}/api/user/fraud-warnings/${account}`, {
+                const res = await fetch(`${API_URL}/api/fraud/status/${account}`, {
                     headers: { 'X-Wallet-Address': account }
                 });
                 const data = await res.json();
-                if (data.success) {
+                if (data.recycling_warnings_remaining !== undefined) {
                     setIsBlacklisted(data.is_recycling_blacklisted || false);
-                    setWarningsRemaining(data.recycling_warnings_remaining || 0);
+                    setWarningsRemaining(data.recycling_warnings_remaining);
                 }
             } catch (err) {
                 console.error('Error checking blacklist:', err);
@@ -80,7 +80,7 @@ function Recycling() {
     };
 
     // Blacklist overlay
-    if (isBlacklisted) {
+    if (isBlacklisted || warningsRemaining <= 0) {
         return (
             <Container maxWidth="lg">
                 <Box sx={{

@@ -41,6 +41,8 @@ class User(Base):
     # Blacklist flags
     is_recycling_blacklisted = Column(Boolean, default=False)
     is_water_blacklisted = Column(Boolean, default=False)
+    # Pending rewards (Accumulate & Claim)
+    pending_reward_balance = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)

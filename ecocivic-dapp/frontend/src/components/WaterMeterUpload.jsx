@@ -264,6 +264,16 @@ export default function WaterMeterUpload() {
         setImage(null);
         setShowConfirmationDialog(false);
         setConsumptionWarning(null);
+
+        // Fatura sonucunu göster
+        setBillResult({
+          meterNumber: data.meter_no,
+          consumption: data.current_index - (data.historical_avg || 0), // Basit hesap
+          pricePerTon: 10,
+          totalAmount: ((data.current_index - (data.historical_avg || 0)) * 10).toFixed(2),
+          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('tr-TR'),
+          pdfUrl: data.bill_pdf
+        });
       } else {
         throw new Error("Transaction başarısız oldu");
       }
@@ -420,7 +430,7 @@ export default function WaterMeterUpload() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Tüketim:</span>
-              <strong>{billResult.consumption} m³</strong>
+              <strong>{parseInt(billResult.consumption)} m³</strong>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Birim Fiyat:</span>
@@ -435,6 +445,28 @@ export default function WaterMeterUpload() {
               <span>Son Ödeme Tarihi:</span>
               <span>{billResult.dueDate}</span>
             </div>
+
+            {/* PDF İndirme Linki */}
+            {billResult.pdfUrl && (
+              <div style={{ marginTop: "10px", textAlign: "center" }}>
+                <a
+                  href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${billResult.pdfUrl}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-block",
+                    padding: "8px 16px",
+                    backgroundColor: "#1976d2",
+                    color: "white",
+                    textDecoration: "none",
+                    borderRadius: "4px",
+                    fontWeight: "bold"
+                  }}
+                >
+                  📄 Faturayı İndir (PDF)
+                </a>
+              </div>
+            )}
           </div>
 
           <h5 style={{ marginTop: "20px", marginBottom: "10px" }}>💳 Ödeme Kanalları</h5>

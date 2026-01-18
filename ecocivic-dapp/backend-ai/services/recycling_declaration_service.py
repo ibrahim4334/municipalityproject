@@ -46,6 +46,15 @@ class RecyclingDeclarationService:
         Returns:
             QR data ve beyan bilgileri
         """
+        # Normalize wallet address
+        wallet_address = wallet_address.lower() if wallet_address else wallet_address
+        
+        # Kullanıcı kontrolü (blacklist)
+        with get_db() as db:
+            user = db.query(User).filter(User.wallet_address == wallet_address).first()
+            if user and user.recycling_fraud_warnings_remaining <= 0:
+                raise ValueError("Beyan oluşturma hakkınız kalmadı. Lütfen belediye ile görüşün.")
+                
         # En az bir tür beyan edilmeli
         if all([plastic_kg <= 0, glass_kg <= 0, metal_kg <= 0, paper_kg <= 0, electronic_count <= 0]):
             raise ValueError("En az bir atık türü için miktar girmelisiniz")
@@ -171,15 +180,23 @@ class RecyclingDeclarationService:
             declaration.is_qr_used = True
             declaration.processed_at = datetime.utcnow()
             
+            # Accumulate rewards (PENDING BALANCE)
+            user = db.query(User).filter(User.wallet_address == declaration.wallet_address).first()
+            if user:
+                current_balance = user.pending_reward_balance or 0
+                user.pending_reward_balance = current_balance + declaration.total_reward_amount
+                logger.info(f"Added {declaration.total_reward_amount} to pending balance for {declaration.wallet_address}. New total: {user.pending_reward_balance}")
+            
             db.commit()
             
             logger.info(f"Declaration {declaration_id} approved by {admin_wallet}")
             
             return {
                 "success": True,
-                "message": "Beyan onaylandı",
+                "message": "Beyan onaylandı ve ödül birikmiş bakiyeye eklendi",
                 "reward_amount": declaration.total_reward_amount,
-                "wallet_address": declaration.wallet_address
+                "wallet_address": declaration.wallet_address,
+                "new_pending_balance": user.pending_reward_balance if user else 0
             }
     
     def mark_fraud(self, declaration_id: int, admin_wallet: str, reason: str = "") -> Dict:

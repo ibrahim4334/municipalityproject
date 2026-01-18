@@ -503,6 +503,55 @@ class BlockchainService:
             logger.error(f"Confirm user reading failed: {e}")
             raise e
 
+    def full_slash_user(self, user_address: str) -> str:
+        """
+        Kullanıcıyı tamamen blacklist'e al ve depozitosunu yak - WaterBillingFraudManager.fullSlash
+        
+        Args:
+            user_address: Kullanıcı cüzdan adresi
+            
+        Returns:
+            Transaction hash
+        """
+        try:
+            if not self.private_key:
+                raise ValueError("Wallet not configured")
+            
+            fraud_manager_address = os.getenv("WATER_BILLING_FRAUD_MANAGER_ADDRESS")
+            if not fraud_manager_address:
+                raise ValueError("Fraud manager address not configured")
+            
+            abi = [
+                {
+                    "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
+                    "name": "fullSlash",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            contract = self.w3.eth.contract(address=fraud_manager_address, abi=abi)
+            
+            tx = contract.functions.fullSlash(
+                user_address
+            ).build_transaction({
+                'from': self.account.address,
+                'nonce': self.w3.eth.get_transaction_count(self.account.address),
+                'gas': 3000000,
+                'gasPrice': self.w3.eth.gas_price
+            })
+            
+            signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            
+            logger.info(f"Full slash executed for {user_address}")
+            return self.w3.to_hex(tx_hash)
+            
+        except Exception as e:
+            logger.error(f"Full slash failed: {e}")
+            raise e
+
 # Global instance
 blockchain_service = BlockchainService()
 
