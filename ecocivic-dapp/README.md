@@ -106,47 +106,183 @@ Dashboard'da toggle buton ile roller arası geçiş:
 
 ## 🏗️ Mimari
 
+### Blockchain-First Architecture V2
+
+Bu proje, **blockchain-first** mimari prensiplerine göre yeniden tasarlanmıştır:
+
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                        FRONTEND                               │
-│  React 18 + Vite + Material-UI + ethers.js                   │
-│  ├── Dashboard.jsx (Rol Switcher entegre)                    │
-│  ├── RecyclingDeclarationForm.jsx (5 atık türü)              │
-│  ├── RecyclingQRWithTimer.jsx (3 saat countdown)             │
-│  ├── UserRoleSwitcher.jsx (Demo toggle)                      │
-│  └── StaffDashboard.jsx (Onay/Fraud butonları)               │
-│                                                               │
-│  📍 http://localhost:3000                                    │
-└────────────────────────┬─────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          MİMARİ PRENSİPLER                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  ✅ Smart contracts kural uygular, fraud TESPÎT ETMEZ                        │
+│  ✅ Cezalar deterministik ve şeffaftır                                        │
+│  ✅ İnsanlar veri gönderir, KARAR VERMEZ                                      │
+│  ✅ AI risk sinyali üretir, hiçbir zaman nihai karar vermez                  │
+│  ✅ Belediye personeli DATA ORACLE olarak çalışır                            │
+│  ✅ Admin override fonksiyonları YASAKTIR                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Katmanlı Mimari
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        FRONTEND                                   │
+│  React 18 + Vite + Material-UI + ethers.js                       │
+│  📍 http://localhost:3000                                        │
+└────────────────────────┬─────────────────────────────────────────┘
                          │ REST API
-┌────────────────────────▼─────────────────────────────────────┐
-│                      BACKEND-AI                               │
-│  Flask 3.0 + SQLAlchemy + Web3.py                            │
-│  ├── services/                                                │
-│  │   ├── recycling_declaration_service.py                    │
-│  │   ├── fraud_detection.py                                  │
-│  │   ├── inspection_service.py                               │
-│  │   └── blockchain_service.py                               │
-│  ├── database/                                                │
-│  │   ├── models.py (User, WaterMeterReading, RecyclingDecl.) │
-│  │   └── seed_data.py (Test verileri)                        │
-│  └── ai/ocr.py (OpenAI Vision)                               │
-│                                                               │
-│  📍 http://localhost:8000                                    │
-└────────────────────────┬─────────────────────────────────────┘
+┌────────────────────────▼─────────────────────────────────────────┐
+│                      BACKEND-AI                                   │
+│  Flask 3.0 + SQLAlchemy + Web3.py                                │
+│  ⚠️ SADECE: Risk sinyali üretir, veri işler                      │
+│  ❌ ASLA: Karar vermez, onay/red yapmaz                          │
+│  📍 http://localhost:8000                                        │
+└────────────────────────┬─────────────────────────────────────────┘
                          │ Web3 RPC
-┌────────────────────────▼─────────────────────────────────────┐
-│                   SMART CONTRACTS                             │
-│  Solidity 0.8.20 + Hardhat + OpenZeppelin                    │
-│  ├── BELTToken.sol (ERC20 + Mintable)                        │
-│  ├── WaterBillingFraudManager.sol (Photo Hash + Fraud)       │
-│  ├── RecyclingRewards.sol (5 Waste Types + 2 Hak Sistemi)    │
-│  ├── TokenStaking.sol (4 Tier Bonus)                         │
-│  └── EcoCivicDeposit.sol (Depozito Yönetimi)                 │
-│                                                               │
-│  📍 Hardhat Local: http://localhost:8545                     │
-└──────────────────────────────────────────────────────────────┘
+┌────────────────────────▼─────────────────────────────────────────┐
+│                   SMART CONTRACTS (V2)                            │
+│  Solidity 0.8.20 + Hardhat + OpenZeppelin                        │
+│                                                                   │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │               RULE LIBRARIES (Pure)                          │ │
+│  │  • WaterRules.sol - Tüketim kuralları                       │ │
+│  │  • RecyclingRules.sol - Geri dönüşüm kuralları (TBD)        │ │
+│  │  • PenaltyRules.sol - Ceza hesaplama (TBD)                  │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                              │                                    │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │               PROTOCOL CONTRACTS                             │ │
+│  │  • InspectionProtocol.sol - Kural tabanlı değerlendirme     │ │
+│  │  • OracleRegistry.sol - Belediye oracle yönetimi            │ │
+│  │  • EcoCivicDepositV2.sol - Case-based stake/slash           │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                   │
+│  📍 Hardhat Local: http://localhost:8545                         │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 📦 Smart Contracts
+
+### V2 Kontrat Yapısı (Blockchain-First)
+
+| Kontrat | Tür | Açıklama |
+|---------|-----|----------|
+| `WaterRules.sol` | 📚 Library | Pure fonksiyonlar: tüketim düşüşü, tolerans, anomali tespiti |
+| `InspectionProtocol.sol` | 🔄 Protocol | Kural tabanlı değerlendirme: CLEAN / WARNING / FRAUD |
+| `OracleRegistry.sol` | 📋 Registry | Belediye kontrollü oracle kaydı, attestation depolama |
+| `EcoCivicDepositV2.sol` | 💰 Deposit | Case-based kilitleme, protocol-only slashing |
+
+### V1 Kontratları (Legacy)
+
+| Kontrat | Durum | Açıklama |
+|---------|-------|----------|
+| `BELTToken.sol` | ✅ Aktif | ERC20 token, mint/burn |
+| `WaterBilling.sol` | ⚠️ Refactor | V2 ile entegre edilecek |
+| `WaterBillingFraudManager.sol` | ⚠️ Refactor | InspectionProtocol ile değiştirilecek |
+| `RecyclingRewards.sol` | ⚠️ Refactor | RecyclingProtocol ile değiştirilecek |
+| `TokenStaking.sol` | ✅ Aktif | 4 tier staking bonus |
+| `EcoCivicDeposit.sol` | ❌ Deprecated | V2 ile değiştirildi |
+
+### Yeni Mimari Detayları
+
+#### 🔷 WaterRules.sol (Pure Library)
+
+```solidity
+// Tüm fonksiyonlar PURE - state yok, event yok
+library WaterRules {
+    function calculateDropPercent(current, average) → uint256  // BPS cinsinden
+    function isAnomalyDetected(dropPercentBps) → bool          // %50+ = anomali
+    function calculateMeasurementDelta(reported, actual) → uint256
+    function isWithinTolerance(delta, toleranceBps, ref) → bool
+    function evaluateMeasurement(reported, actual, tolerance) → (bool, uint256)
+}
+```
+
+#### 🔷 InspectionProtocol.sol (Kural Motoru)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    INSPECTION PROTOCOL                           │
+├─────────────────────────────────────────────────────────────────┤
+│  openCase(citizen, reported, previous, average)                  │
+│       ↓                                                          │
+│  Oracle: submitAttestation(caseId, actualReading, hash)          │
+│       ↓                                                          │
+│  WaterRules.evaluateMeasurement() + evaluateConsumptionChange()  │
+│       ↓                                                          │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  OUTCOME (Deterministik)                                     ││
+│  │  • withinTolerance + delta=0  → CLEAN                        ││
+│  │  • withinTolerance + anomaly  → WARNING                      ││
+│  │  • !withinTolerance           → FRAUD                        ││
+│  └─────────────────────────────────────────────────────────────┘│
+│       ↓                                                          │
+│  emit CaseEvaluated(caseId, citizen, outcome, ...)               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### 🔷 OracleRegistry.sol (Belediye Yetkilendirmesi)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ORACLE REGISTRY                               │
+├─────────────────────────────────────────────────────────────────┤
+│  BELEDİYE (immutable authority)                                  │
+│  ├── registerOracle(address, role)    ← SADECE belediye          │
+│  ├── deactivateOracle(address)        ← SADECE belediye          │
+│  └── reactivateOracle(address)        ← SADECE belediye          │
+│                                                                   │
+│  ORACLE                                                          │
+│  └── submitAttestation(caseId, dataHash) ← Sadece aktif oracle   │
+│                                                                   │
+│  ROLES (bytes32)                                                 │
+│  ├── WATER_INSPECTOR                                             │
+│  ├── RECYCLING_INSPECTOR                                         │
+│  └── IOT_SENSOR                                                  │
+│                                                                   │
+│  ❌ Self-registration YASAK                                       │
+│  ❌ DAO/Voting YOK                                                │
+│  ❌ Token staking YOK (deposit ayrı kontrat)                      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### 🔷 EcoCivicDepositV2.sol (Case-Based Deposit)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 ECOCIVIC DEPOSIT V2                              │
+├─────────────────────────────────────────────────────────────────┤
+│  KULLANICI                                                       │
+│  ├── depositAsCitizen(amount)                                    │
+│  ├── depositAsOracle(amount)                                     │
+│  └── withdraw(amount)  ← unlocked balance, active case olabilir  │
+│                                                                   │
+│  PROTOCOL CONTRACTS (immutable at deployment)                    │
+│  ├── lockForCase(user, caseId, amount)                           │
+│  ├── unlockCase(caseId)                                          │
+│  ├── slash(caseId, amount, beneficiary, shareBps)                │
+│  └── slashAndClose(caseId, beneficiary, shareBps)                │
+│                                                                   │
+│  ❌ Admin/Owner YOK                                               │
+│  ❌ Pause YOK                                                     │
+│  ❌ EmergencyWithdraw YOK                                         │
+│  ❌ Manual slashing YASAK                                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Sorumluluk Dağılımı
+
+| Sorumluluk | Kontrat |
+|------------|---------|
+| Oracle rol takibi | `OracleRegistry` |
+| Attestation hash saklama | `OracleRegistry` |
+| Oracle deposit tutma | `EcoCivicDepositV2` |
+| Min stake zorlama | `EcoCivicDepositV2` |
+| Kural değerlendirme | `InspectionProtocol` + `WaterRules` |
+| Slashing | Protocol contracts → `EcoCivicDepositV2.slash()` |
 
 ---
 
