@@ -1,97 +1,101 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./libraries/WaterRules.sol";
+/**
+ * @title IEcoCivicDepositV2
+ */
+interface IEcoCivicDepositV2 {
+    function lockForCase(address user, bytes32 caseId, uint256 amount) external;
+    function executeInspectionOutcome(bytes32 caseId) external;
+    function hasAvailableDeposit(address user, uint256 amount) external view returns (bool);
+}
+
+/**
+ * @title IOracleRegistry
+ */
+interface IOracleRegistry {
+    function isOracle(address oracle) external view returns (bool);
+}
 
 /**
  * @title InspectionProtocol
- * @notice Decentralized water meter inspection protocol with rule-based outcomes
- * @dev No owner, no admin, no privileged roles. All decisions are deterministic.
+ * @notice On-chain deterministic fraud detection
+ * @dev Blockchain-first justice: no admin, no DAO, no governance, no voting
  * 
- * This contract:
- * ✅ Opens inspection cases
- * ✅ Accepts oracle attestations (hash references)
- * ✅ Evaluates outcomes using WaterRules library
- * ✅ Classifies outcomes: CLEAN, WARNING, FRAUD
- * ✅ Emits outcome events
+ * Architecture:
+ * - Deposit = passive vault
+ * - Inspection = judge (this contract)
+ * - Oracle = sensor (submits raw data only)
  * 
- * This contract does NOT:
- * ❌ Transfer tokens
- * ❌ Execute slashing
- * ❌ Have admin overrides
- * ❌ Make subjective decisions
+ * Security:
+ * - Only citizen can open case for themselves
+ * - Max 1 open case per citizen
+ * - Oracle must be registered and active
+ * - Double execution prevented
  * 
- * Slashing is triggered by consuming contracts reading outcomes.
+ * Fraud Rules (IMMUTABLE):
+ * 1. reportedReading < previousReading → FRAUD
+ * 2. dropPercentBps >= 3000 (30%) → FRAUD
+ * 3. measurementDelta >= 1000 → FRAUD
  */
 contract InspectionProtocol {
-    using WaterRules for *;
 
     // ==============================
-    // CONSTANTS
+    // IMMUTABLE FRAUD THRESHOLDS
     // ==============================
     
-    /// @notice Tolerance for measurement discrepancy (5% = 500 bps)
-    uint256 public constant TOLERANCE_BPS = 500;
-    
-    /// @notice Time window for oracle to submit attestation
-    uint256 public constant ATTESTATION_WINDOW = 14 days;
-    
-    /// @notice Time after which case auto-resolves if no attestation
-    uint256 public constant AUTO_RESOLVE_WINDOW = 21 days;
+    uint256 public constant FRAUD_DROP_THRESHOLD_BPS = 3000;
+    uint256 public constant FRAUD_DELTA_THRESHOLD = 1000;
+    uint256 public constant BPS_BASE = 10000;
+    uint256 public constant CASE_LOCK_AMOUNT = 50 ether;
 
     // ==============================
     // TYPES
     // ==============================
     
-    enum CaseStatus {
-        Open,           // Awaiting oracle attestation
-        Evaluated,      // Oracle attested, outcome determined
-        Expired,        // No attestation within window
-        Closed          // Finalized
-    }
+    enum CaseStatus { Open, Evaluated, Executed }
+    enum Outcome { Pending, Clean, Fraud }
     
-    enum Outcome {
-        Pending,        // Not yet evaluated
-        Clean,          // No issues found
-        Warning,        // Anomaly detected but within tolerance
-        Fraud           // Measurement discrepancy exceeds tolerance
-    }
-    
-    struct InspectionCase {
-        bytes32 caseId;
+    struct CaseData {
         address citizen;
+        address oracle;
         uint256 reportedReading;
         uint256 previousReading;
         uint256 historicalAverage;
-        uint256 actualReading;      // Set by oracle attestation
-        bytes32 attestationHash;    // Oracle's data hash
-        address attestingOracle;
+        uint256 actualReading;
         uint256 openedAt;
         uint256 evaluatedAt;
+        uint256 executedAt;
         CaseStatus status;
         Outcome outcome;
-        uint256 dropPercentBps;     // Consumption drop %
-        uint256 measurementDelta;   // Difference between reported & actual
+    }
+    
+    struct CaseMetrics {
+        uint256 dropPercentBps;
+        uint256 measurementDelta;
+        bool invalidSequence;
     }
 
     // ==============================
     // STATE
     // ==============================
     
-    /// @notice All inspection cases
-    mapping(bytes32 => InspectionCase) public cases;
+    IOracleRegistry public immutable oracleRegistry;
+    IEcoCivicDepositV2 public immutable depositContract;
     
-    /// @notice Citizen's active cases
+    mapping(bytes32 => CaseData) public cases;
+    mapping(bytes32 => CaseMetrics) public caseMetrics;
     mapping(address => bytes32[]) public citizenCases;
     
-    /// @notice Oracle registry reference (for validation)
-    address public immutable oracleRegistry;
+    /// @notice Active case per citizen (max 1 open case)
+    mapping(address => bytes32) public activeCase;
     
-    /// @notice Total cases opened
+    /// @notice Track executed cases to prevent double execution
+    mapping(bytes32 => bool) public executed;
+    
     uint256 public totalCases;
-    
-    /// @notice Cases by outcome count
-    mapping(Outcome => uint256) public outcomeCount;
+    uint256 public totalFraud;
+    uint256 public totalClean;
 
     // ==============================
     // EVENTS
@@ -102,37 +106,27 @@ contract InspectionProtocol {
         address indexed citizen,
         uint256 reportedReading,
         uint256 previousReading,
-        uint256 historicalAverage,
         uint256 timestamp
     );
     
-    event AttestationReceived(
+    event MeasurementSubmitted(
         bytes32 indexed caseId,
         address indexed oracle,
-        bytes32 attestationHash,
         uint256 actualReading,
         uint256 timestamp
     );
     
-    event CaseEvaluated(
+    event VerdictReached(
         bytes32 indexed caseId,
         address indexed citizen,
         Outcome outcome,
-        uint256 dropPercentBps,
-        uint256 measurementDelta,
-        bool withinTolerance,
         uint256 timestamp
     );
     
-    event CaseExpired(
+    event OutcomeExecuted(
         bytes32 indexed caseId,
         address indexed citizen,
-        uint256 timestamp
-    );
-    
-    event CaseClosed(
-        bytes32 indexed caseId,
-        Outcome finalOutcome,
+        Outcome outcome,
         uint256 timestamp
     );
 
@@ -140,27 +134,29 @@ contract InspectionProtocol {
     // ERRORS
     // ==============================
     
+    error InvalidAddress();
     error CaseNotFound();
     error CaseNotOpen();
-    error CaseAlreadyExists();
-    error InvalidReading();
-    error AttestationWindowExpired();
-    error NotRegisteredOracle();
-    error AlreadyAttested();
     error CaseNotEvaluated();
-    error InvalidAddress();
+    error CaseAlreadyExists();
+    error CaseAlreadyExecuted();
+    error NotRegisteredOracle();
+    error OracleNotActive();
+    error AlreadyMeasured();
+    error InsufficientDeposit();
+    error NotCitizen();
+    error ActiveCaseExists();
 
     // ==============================
     // CONSTRUCTOR
     // ==============================
     
-    /**
-     * @notice Deploy inspection protocol
-     * @param _oracleRegistry Address of OracleRegistry contract
-     */
-    constructor(address _oracleRegistry) {
+    constructor(address _oracleRegistry, address _depositContract) {
         if (_oracleRegistry == address(0)) revert InvalidAddress();
-        oracleRegistry = _oracleRegistry;
+        if (_depositContract == address(0)) revert InvalidAddress();
+        
+        oracleRegistry = IOracleRegistry(_oracleRegistry);
+        depositContract = IEcoCivicDepositV2(_depositContract);
     }
 
     // ==============================
@@ -168,339 +164,282 @@ contract InspectionProtocol {
     // ==============================
     
     /**
-     * @notice Open an inspection case for a citizen
-     * @param citizen Citizen address
+     * @notice Citizen opens an inspection case for themselves
      * @param reportedReading Citizen's reported meter reading
-     * @param previousReading Previous meter reading on record
-     * @param historicalAverage Historical average consumption (6-month)
+     * @param previousReading Previous official reading
+     * @param historicalAverage Historical consumption average
      * @return caseId Unique case identifier
-     * @dev Anyone can open a case (typically triggered by anomaly detection)
+     * @dev ONLY the citizen can open a case for their own address
+     * @dev Citizen can only have 1 open case at a time
      */
     function openCase(
-        address citizen,
         uint256 reportedReading,
         uint256 previousReading,
         uint256 historicalAverage
     ) external returns (bytes32 caseId) {
-        if (citizen == address(0)) revert InvalidAddress();
+        address citizen = msg.sender;
+        
+        // Security: Max 1 open case per citizen
+        if (activeCase[citizen] != bytes32(0)) {
+            // Check if previous case is still open
+            CaseData storage prevCase = cases[activeCase[citizen]];
+            if (prevCase.status == CaseStatus.Open) {
+                revert ActiveCaseExists();
+            }
+        }
         
         // Generate unique case ID
-        caseId = keccak256(
-            abi.encodePacked(
-                citizen,
-                reportedReading,
-                block.timestamp,
-                totalCases
-            )
-        );
+        caseId = keccak256(abi.encodePacked(
+            citizen,
+            reportedReading,
+            previousReading,
+            block.timestamp,
+            totalCases
+        ));
         
         if (cases[caseId].openedAt != 0) revert CaseAlreadyExists();
         
-        // Validate reading sequence
-        if (!WaterRules.isValidReadingSequence(previousReading, reportedReading)) {
-            revert InvalidReading();
+        // Check citizen has deposit
+        if (!depositContract.hasAvailableDeposit(citizen, CASE_LOCK_AMOUNT)) {
+            revert InsufficientDeposit();
         }
         
+        // Lock citizen's deposit
+        depositContract.lockForCase(citizen, caseId, CASE_LOCK_AMOUNT);
+        
         // Create case
-        cases[caseId] = InspectionCase({
-            caseId: caseId,
+        cases[caseId] = CaseData({
             citizen: citizen,
+            oracle: address(0),
             reportedReading: reportedReading,
             previousReading: previousReading,
             historicalAverage: historicalAverage,
             actualReading: 0,
-            attestationHash: bytes32(0),
-            attestingOracle: address(0),
             openedAt: block.timestamp,
             evaluatedAt: 0,
+            executedAt: 0,
             status: CaseStatus.Open,
-            outcome: Outcome.Pending,
-            dropPercentBps: 0,
-            measurementDelta: 0
+            outcome: Outcome.Pending
         });
         
+        // Set active case for citizen
+        activeCase[citizen] = caseId;
         citizenCases[citizen].push(caseId);
         totalCases++;
-        outcomeCount[Outcome.Pending]++;
         
-        emit CaseOpened(
-            caseId,
-            citizen,
-            reportedReading,
-            previousReading,
-            historicalAverage,
-            block.timestamp
-        );
+        emit CaseOpened(caseId, citizen, reportedReading, previousReading, block.timestamp);
     }
 
     /**
-     * @notice Submit oracle attestation with actual reading
+     * @notice Oracle submits actual measurement
      * @param caseId Case identifier
-     * @param actualReading Actual meter reading observed by oracle
-     * @param attestationHash Hash of full attestation data (stored off-chain)
-     * @dev Oracle must be registered in OracleRegistry
+     * @param actualReading Actual meter reading observed
+     * @dev Oracle must be registered AND active
      */
-    function submitAttestation(
-        bytes32 caseId,
-        uint256 actualReading,
-        bytes32 attestationHash
-    ) external {
-        InspectionCase storage inspectionCase = cases[caseId];
+    function oracleSubmitMeasurement(bytes32 caseId, uint256 actualReading) external {
+        CaseData storage c = cases[caseId];
         
-        if (inspectionCase.openedAt == 0) revert CaseNotFound();
-        if (inspectionCase.status != CaseStatus.Open) revert CaseNotOpen();
-        if (inspectionCase.attestingOracle != address(0)) revert AlreadyAttested();
+        if (c.openedAt == 0) revert CaseNotFound();
+        if (c.status != CaseStatus.Open) revert CaseNotOpen();
+        if (c.oracle != address(0)) revert AlreadyMeasured();
         
-        // Check attestation window
-        if (block.timestamp > inspectionCase.openedAt + ATTESTATION_WINDOW) {
-            revert AttestationWindowExpired();
-        }
+        // Oracle validation: must be registered
+        if (!oracleRegistry.isOracle(msg.sender)) revert NotRegisteredOracle();
         
-        // Validate oracle registration (call OracleRegistry)
-        if (!_isRegisteredOracle(msg.sender)) {
-            revert NotRegisteredOracle();
-        }
+        // Record measurement
+        c.actualReading = actualReading;
+        c.oracle = msg.sender;
         
-        // Record attestation
-        inspectionCase.actualReading = actualReading;
-        inspectionCase.attestationHash = attestationHash;
-        inspectionCase.attestingOracle = msg.sender;
+        emit MeasurementSubmitted(caseId, msg.sender, actualReading, block.timestamp);
         
-        emit AttestationReceived(
-            caseId,
-            msg.sender,
-            attestationHash,
-            actualReading,
-            block.timestamp
-        );
-        
-        // Automatically evaluate
-        _evaluateCase(caseId);
+        // Automatically evaluate verdict
+        _evaluateVerdict(caseId);
     }
 
     /**
-     * @notice Expire a case that received no attestation
+     * @notice Execute the verdict on deposit contract
      * @param caseId Case identifier
-     * @dev Anyone can call after AUTO_RESOLVE_WINDOW
+     * @dev STRICT: Only works if status == Evaluated
+     * @dev Double execution prevented
      */
-    function expireCase(bytes32 caseId) external {
-        InspectionCase storage inspectionCase = cases[caseId];
+    function executeOutcome(bytes32 caseId) external {
+        CaseData storage c = cases[caseId];
         
-        if (inspectionCase.openedAt == 0) revert CaseNotFound();
-        if (inspectionCase.status != CaseStatus.Open) revert CaseNotOpen();
+        // Existence check
+        if (c.openedAt == 0) revert CaseNotFound();
         
-        // Must be past auto-resolve window
-        if (block.timestamp <= inspectionCase.openedAt + AUTO_RESOLVE_WINDOW) {
-            revert AttestationWindowExpired();
+        // Status check: MUST be Evaluated
+        if (c.status != CaseStatus.Evaluated) revert CaseNotEvaluated();
+        
+        // Double execution prevention
+        if (executed[caseId]) revert CaseAlreadyExecuted();
+        if (c.executedAt != 0) revert CaseAlreadyExecuted();
+        
+        // Mark as executed BEFORE external call (CEI pattern)
+        executed[caseId] = true;
+        c.status = CaseStatus.Executed;
+        c.executedAt = block.timestamp;
+        
+        // Clear active case for citizen
+        if (activeCase[c.citizen] == caseId) {
+            activeCase[c.citizen] = bytes32(0);
         }
         
-        // Mark as expired - citizen is not penalized (no oracle response)
-        inspectionCase.status = CaseStatus.Expired;
-        inspectionCase.outcome = Outcome.Clean;
-        inspectionCase.evaluatedAt = block.timestamp;
+        // Call deposit contract to execute outcome
+        depositContract.executeInspectionOutcome(caseId);
         
-        // Update counters
-        outcomeCount[Outcome.Pending]--;
-        outcomeCount[Outcome.Clean]++;
-        
-        emit CaseExpired(caseId, inspectionCase.citizen, block.timestamp);
-    }
-
-    /**
-     * @notice Close an evaluated case
-     * @param caseId Case identifier
-     * @dev Can only close evaluated or expired cases
-     */
-    function closeCase(bytes32 caseId) external {
-        InspectionCase storage inspectionCase = cases[caseId];
-        
-        if (inspectionCase.openedAt == 0) revert CaseNotFound();
-        if (inspectionCase.status == CaseStatus.Open) revert CaseNotEvaluated();
-        if (inspectionCase.status == CaseStatus.Closed) revert CaseNotOpen();
-        
-        inspectionCase.status = CaseStatus.Closed;
-        
-        emit CaseClosed(caseId, inspectionCase.outcome, block.timestamp);
+        emit OutcomeExecuted(caseId, c.citizen, c.outcome, block.timestamp);
     }
 
     // ==============================
-    // INTERNAL EVALUATION
+    // VERDICT EVALUATION (Internal)
     // ==============================
     
     /**
-     * @notice Evaluate case using WaterRules library
-     * @param caseId Case identifier
-     * @dev Pure rule-based evaluation, no discretion
+     * @notice Evaluate verdict using IMMUTABLE on-chain rules
+     * @dev Pure deterministic logic - blockchain is the judge
+     * 
+     * FRAUD CONDITIONS (any one triggers fraud):
+     * 1. reportedReading < previousReading (invalid sequence)
+     * 2. dropPercentBps >= 3000 (30% consumption drop)
+     * 3. measurementDelta >= 1000 (reading discrepancy)
      */
-    function _evaluateCase(bytes32 caseId) internal {
-        InspectionCase storage inspectionCase = cases[caseId];
+    function _evaluateVerdict(bytes32 caseId) internal {
+        CaseData storage c = cases[caseId];
+        CaseMetrics storage m = caseMetrics[caseId];
         
-        // Calculate reported consumption
-        uint256 reportedConsumption = WaterRules.calculateConsumption(
-            inspectionCase.previousReading,
-            inspectionCase.reportedReading
-        );
+        // Calculate metrics
+        m.invalidSequence = c.reportedReading < c.previousReading;
+        m.dropPercentBps = _calculateDropPercent(c.reportedReading, c.previousReading, c.historicalAverage);
+        m.measurementDelta = _calculateDelta(c.reportedReading, c.actualReading);
         
-        // Calculate actual consumption
-        uint256 actualConsumption = WaterRules.calculateConsumption(
-            inspectionCase.previousReading,
-            inspectionCase.actualReading
-        );
+        // Apply IMMUTABLE fraud rules
+        bool fraud = _applyFraudRules(m.invalidSequence, m.dropPercentBps, m.measurementDelta);
         
-        // Evaluate consumption anomaly (drop from historical)
-        (bool hasAnomaly, uint256 dropBps) = WaterRules.evaluateConsumptionChange(
-            reportedConsumption,
-            inspectionCase.historicalAverage
-        );
-        
-        // Evaluate measurement tolerance
-        (bool withinTolerance, uint256 delta) = WaterRules.evaluateMeasurement(
-            inspectionCase.reportedReading,
-            inspectionCase.actualReading,
-            TOLERANCE_BPS
-        );
-        
-        // Store metrics
-        inspectionCase.dropPercentBps = dropBps;
-        inspectionCase.measurementDelta = delta;
-        inspectionCase.evaluatedAt = block.timestamp;
-        inspectionCase.status = CaseStatus.Evaluated;
-        
-        // Classify outcome using deterministic rules
-        Outcome outcome = _classifyOutcome(hasAnomaly, withinTolerance, delta);
-        inspectionCase.outcome = outcome;
+        // Set verdict
+        c.outcome = fraud ? Outcome.Fraud : Outcome.Clean;
+        c.status = CaseStatus.Evaluated;
+        c.evaluatedAt = block.timestamp;
         
         // Update counters
-        outcomeCount[Outcome.Pending]--;
-        outcomeCount[outcome]++;
+        if (fraud) {
+            totalFraud++;
+        } else {
+            totalClean++;
+        }
         
-        emit CaseEvaluated(
-            caseId,
-            inspectionCase.citizen,
-            outcome,
-            dropBps,
-            delta,
-            withinTolerance,
-            block.timestamp
-        );
+        emit VerdictReached(caseId, c.citizen, c.outcome, block.timestamp);
     }
     
     /**
-     * @notice Classify outcome based on rule evaluation
-     * @param hasAnomaly Whether consumption anomaly was detected
-     * @param withinTolerance Whether measurement is within tolerance
-     * @param delta Measurement discrepancy
-     * @return Outcome classification
-     * @dev Pure deterministic logic:
-     *      - Within tolerance + no delta → CLEAN
-     *      - Within tolerance + has anomaly → WARNING
-     *      - Outside tolerance → FRAUD
+     * @notice Apply fraud detection rules
+     * @dev IMMUTABLE - these rules cannot be changed
      */
-    function _classifyOutcome(
-        bool hasAnomaly,
-        bool withinTolerance,
-        uint256 delta
-    ) internal pure returns (Outcome) {
-        // If measurement within tolerance
-        if (withinTolerance) {
-            // No discrepancy at all
-            if (delta == 0) {
-                return Outcome.Clean;
-            }
-            // Small discrepancy but anomaly detected
-            if (hasAnomaly) {
-                return Outcome.Warning;
-            }
-            // Small discrepancy, no anomaly
-            return Outcome.Clean;
-        }
+    function _applyFraudRules(
+        bool invalidSequence,
+        uint256 dropPercentBps,
+        uint256 measurementDelta
+    ) internal pure returns (bool) {
+        // Rule 1: Invalid reading sequence (reported < previous)
+        if (invalidSequence) return true;
         
-        // Outside tolerance = fraud
-        return Outcome.Fraud;
+        // Rule 2: Excessive consumption drop (30%+)
+        if (dropPercentBps >= FRAUD_DROP_THRESHOLD_BPS) return true;
+        
+        // Rule 3: Measurement discrepancy (delta >= 1000)
+        if (measurementDelta >= FRAUD_DELTA_THRESHOLD) return true;
+        
+        return false;
+    }
+    
+    function _calculateDropPercent(
+        uint256 reported,
+        uint256 previous,
+        uint256 average
+    ) internal pure returns (uint256) {
+        if (reported <= previous) return 0;
+        uint256 consumption = reported - previous;
+        if (average == 0) return 0;
+        if (consumption >= average) return 0;
+        return ((average - consumption) * BPS_BASE) / average;
+    }
+    
+    function _calculateDelta(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a >= b ? a - b : b - a;
     }
 
     // ==============================
     // VIEW FUNCTIONS
     // ==============================
     
-    /**
-     * @notice Get full case details
-     */
-    function getCase(bytes32 caseId) external view returns (InspectionCase memory) {
-        return cases[caseId];
-    }
-    
-    /**
-     * @notice Get case outcome
-     */
-    function getCaseOutcome(bytes32 caseId) external view returns (Outcome) {
-        return cases[caseId].outcome;
-    }
-    
-    /**
-     * @notice Get case status
-     */
-    function getCaseStatus(bytes32 caseId) external view returns (CaseStatus) {
-        return cases[caseId].status;
-    }
-    
-    /**
-     * @notice Check if case is fraud
-     */
     function isFraud(bytes32 caseId) external view returns (bool) {
         return cases[caseId].outcome == Outcome.Fraud;
     }
     
-    /**
-     * @notice Get citizen's cases
-     */
+    function getCaseOutcome(bytes32 caseId) external view returns (Outcome) {
+        return cases[caseId].outcome;
+    }
+    
+    function getCaseStatus(bytes32 caseId) external view returns (CaseStatus) {
+        return cases[caseId].status;
+    }
+    
+    function getCaseData(bytes32 caseId) external view returns (CaseData memory) {
+        return cases[caseId];
+    }
+    
+    function getCaseMetrics(bytes32 caseId) external view returns (CaseMetrics memory) {
+        return caseMetrics[caseId];
+    }
+    
     function getCitizenCases(address citizen) external view returns (bytes32[] memory) {
         return citizenCases[citizen];
     }
     
-    /**
-     * @notice Get outcome statistics
-     */
-    function getOutcomeStats() external view returns (
-        uint256 clean,
-        uint256 warning,
-        uint256 fraud,
-        uint256 pending
-    ) {
-        return (
-            outcomeCount[Outcome.Clean],
-            outcomeCount[Outcome.Warning],
-            outcomeCount[Outcome.Fraud],
-            outcomeCount[Outcome.Pending]
-        );
+    function getActiveCase(address citizen) external view returns (bytes32) {
+        return activeCase[citizen];
     }
     
-    /**
-     * @notice Check if case exists
-     */
+    function hasActiveCase(address citizen) external view returns (bool) {
+        bytes32 active = activeCase[citizen];
+        if (active == bytes32(0)) return false;
+        return cases[active].status == CaseStatus.Open;
+    }
+    
+    function getStats() external view returns (uint256 total, uint256 fraud, uint256 clean) {
+        return (totalCases, totalFraud, totalClean);
+    }
+    
     function caseExists(bytes32 caseId) external view returns (bool) {
         return cases[caseId].openedAt != 0;
     }
-
-    // ==============================
-    // INTERNAL HELPERS
-    // ==============================
     
-    /**
-     * @notice Check if address is registered oracle
-     * @param oracle Address to check
-     * @return True if registered
-     */
-    function _isRegisteredOracle(address oracle) internal view returns (bool) {
-        // Call OracleRegistry.isOracle(oracle)
-        (bool success, bytes memory data) = oracleRegistry.staticcall(
-            abi.encodeWithSignature("isOracle(address)", oracle)
-        );
-        
-        if (!success || data.length == 0) {
-            return false;
-        }
-        
-        return abi.decode(data, (bool));
+    function isExecuted(bytes32 caseId) external view returns (bool) {
+        return executed[caseId];
+    }
+    
+    function getFraudThresholds() external pure returns (
+        uint256 dropThresholdBps,
+        uint256 deltaThreshold,
+        uint256 lockAmount
+    ) {
+        return (FRAUD_DROP_THRESHOLD_BPS, FRAUD_DELTA_THRESHOLD, CASE_LOCK_AMOUNT);
+    }
+    
+    function simulateVerdict(
+        uint256 reportedReading,
+        uint256 previousReading,
+        uint256 historicalAverage,
+        uint256 actualReading
+    ) external pure returns (
+        bool wouldBeFraud,
+        uint256 dropPercentBps,
+        uint256 measurementDelta,
+        bool invalidSequence
+    ) {
+        invalidSequence = reportedReading < previousReading;
+        dropPercentBps = _calculateDropPercent(reportedReading, previousReading, historicalAverage);
+        measurementDelta = _calculateDelta(reportedReading, actualReading);
+        wouldBeFraud = _applyFraudRules(invalidSequence, dropPercentBps, measurementDelta);
     }
 }

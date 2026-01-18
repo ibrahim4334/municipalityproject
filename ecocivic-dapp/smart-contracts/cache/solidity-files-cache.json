@@ -1021,8 +1021,8 @@
       ]
     },
     "C:\\Users\\ASUS\\Desktop\\municipality project files\\clean-repo\\ecocivic-dapp\\smart-contracts\\contracts\\EcoCivicDepositV2.sol": {
-      "lastModificationDate": 1768758738091,
-      "contentHash": "4974cc42c8d1223e22d7c37a924392fa",
+      "lastModificationDate": 1768764420548,
+      "contentHash": "ee33f3d75c94da999df8c1d0426e575f",
       "sourceName": "contracts/EcoCivicDepositV2.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -1057,7 +1057,8 @@
         "^0.8.20"
       ],
       "artifacts": [
-        "EcoCivicDepositV2"
+        "EcoCivicDepositV2",
+        "IInspectionProtocol"
       ]
     },
     "C:\\Users\\ASUS\\Desktop\\municipality project files\\clean-repo\\ecocivic-dapp\\smart-contracts\\contracts\\OracleRegistry.sol": {
@@ -1133,8 +1134,8 @@
       ]
     },
     "C:\\Users\\ASUS\\Desktop\\municipality project files\\clean-repo\\ecocivic-dapp\\smart-contracts\\contracts\\InspectionProtocol.sol": {
-      "lastModificationDate": 1768760302699,
-      "contentHash": "4d4805f7add1c81709b310594cf31f85",
+      "lastModificationDate": 1768765495676,
+      "contentHash": "c4d8fcd141fe9f29307fb7934a59e31e",
       "sourceName": "contracts/InspectionProtocol.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -1160,13 +1161,13 @@
           }
         }
       },
-      "imports": [
-        "./libraries/WaterRules.sol"
-      ],
+      "imports": [],
       "versionPragmas": [
         "^0.8.20"
       ],
       "artifacts": [
+        "IEcoCivicDepositV2",
+        "IOracleRegistry",
         "InspectionProtocol"
       ]
     }
