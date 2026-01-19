@@ -371,3 +371,54 @@ class FraudAppeal(Base):
         Index('idx_fraud_appeal_status', 'status'),
         Index('idx_fraud_appeal_created', 'created_at'),
     )
+
+
+class AnomalySignal(Base):
+    """
+    Anomali Sinyal Kayıtları
+    
+    v1 Not: Bu tablo CEZA KAYDI değildir!
+    Sadece istatistiksel anomali sinyallerini kaydeder.
+    Karar personel/admin tarafından verilir.
+    
+    Workflow:
+    1. Sistem istatistiksel anomali tespit eder
+    2. AnomalySignal kaydı oluşturulur (status=pending_review)
+    3. Personel inceler ve karar verir
+    4. Karar blockchain'e kaydedilir
+    """
+    __tablename__ = "anomaly_signals"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    wallet_address = Column(String(42), nullable=False, index=True)
+    
+    # Sinyal bilgileri
+    signal_type = Column(String(50), nullable=False)  # consumption_drop, index_decreased, photo_metadata_suspicious
+    details = Column(Text, nullable=True)  # Sinyal detayı
+    confidence = Column(Float, default=0.8)  # Güven skoru (0-1)
+    
+    # Durum (KARAR DEĞİL, sadece review durumu)
+    status = Column(String(30), default="pending_review", index=True)  # pending_review, reviewed_ok, reviewed_fraud, dismissed
+    
+    # Review bilgileri
+    reviewed_by = Column(String(42), nullable=True)  # Personel veya admin wallet
+    review_notes = Column(Text, nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Blockchain kaydı (karar sonrası)
+    blockchain_tx = Column(String(66), nullable=True)
+    
+    # Metadata
+    detected_by = Column(String(50), default="statistical_system")  # statistical_system, ocr_check, consumption_analysis
+    related_reading_id = Column(Integer, nullable=True)  # İlgili water reading ID
+    related_declaration_id = Column(Integer, nullable=True)  # İlgili recycling declaration ID
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    __table_args__ = (
+        Index('idx_anomaly_signal_wallet', 'wallet_address'),
+        Index('idx_anomaly_signal_status', 'status'),
+        Index('idx_anomaly_signal_type', 'signal_type'),
+        Index('idx_anomaly_signal_created', 'created_at'),
+    )

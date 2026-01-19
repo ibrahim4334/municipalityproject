@@ -1,19 +1,25 @@
 """
-Usage Anomaly Detection
-Tüketim anomali tespiti - fraud scoring için
+Usage Anomaly Signal Detection
+Tüketim anomali sinyal sistemi - istatistiksel analiz
+
+v1 Not: Bu sistem ML/AI modeli KULLANMAZ.
+Sadece istatistiksel yöntemler (z-score, standart sapma, trend) kullanır.
 """
 import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 import statistics
 
-logger = logging.getLogger("usage-anomaly")
+logger = logging.getLogger("usage-anomaly-signal")
 
 
-class UsageAnomalyDetector:
+class UsageAnomalySignalDetector:
     """
-    Su tüketimi anomali tespiti
-    - Geçmiş tüketim trendi skoru
+    Su tüketimi anomali sinyal sistemi (İstatistiksel)
+    
+    NOT: Bu sistem ML/AI KULLANMAZ.
+    
+    - Geçmiş tüketim trendi analizi
     - Mevsimsel düzeltme
     - Z-score hesaplama
     """
@@ -27,14 +33,16 @@ class UsageAnomalyDetector:
     def __init__(self):
         pass
     
-    def calculate_fraud_score(
+    def calculate_signal_score(
         self,
         current_consumption: float,
         historical_data: List[float],
         metadata: Optional[Dict] = None
     ) -> Dict:
         """
-        Fraud skoru hesapla (0-100)
+        Anomali sinyal skoru hesapla (0-100) - İstatistiksel analiz
+        
+        NOT: Bu metod ML/AI KULLANMAZ. Sadece istatistiksel hesaplama yapar.
         
         Args:
             current_consumption: Mevcut ay tüketimi
@@ -43,8 +51,8 @@ class UsageAnomalyDetector:
             
         Returns:
             {
-                "fraud_score": int (0-100),
-                "risk_level": str (low/medium/high/critical),
+                "signal_score": int (0-100),
+                "signal_level": str (low/medium/high/critical),
                 "anomalies": list,
                 "recommendation": str
             }
@@ -54,8 +62,8 @@ class UsageAnomalyDetector:
         
         if not historical_data or len(historical_data) < self.MIN_HISTORY_MONTHS:
             return {
-                "fraud_score": 0,
-                "risk_level": "unknown",
+                "signal_score": 0,
+                "signal_level": "unknown",
                 "anomalies": ["Yetersiz geçmiş veri"],
                 "recommendation": "Daha fazla veri toplanana kadar izlemeye devam"
             }
@@ -114,23 +122,23 @@ class UsageAnomalyDetector:
         # Score'u 0-100 aralığına sınırla
         score = min(100, max(0, score))
         
-        # Risk seviyesi
+        # Sinyal seviyesi (KARAR DEĞİL, sadece sinyal)
         if score >= 70:
-            risk_level = "critical"
-            recommendation = "Acil fiziksel kontrol planla"
+            signal_level = "critical"
+            recommendation = "Personel incelemesi gerekli"
         elif score >= 50:
-            risk_level = "high"
-            recommendation = "Fiziksel kontrol önerilir"
+            signal_level = "high"
+            recommendation = "Personel incelemesi önerilir"
         elif score >= 30:
-            risk_level = "medium"
-            recommendation = "İzlemeye devam, uyarı gönder"
+            signal_level = "medium"
+            recommendation = "İzlemeye devam, bilgilendirme gönder"
         else:
-            risk_level = "low"
+            signal_level = "low"
             recommendation = "Normal işlem"
         
         return {
-            "fraud_score": score,
-            "risk_level": risk_level,
+            "signal_score": score,
+            "signal_level": signal_level,
             "anomalies": anomalies,
             "recommendation": recommendation,
             "details": {
@@ -173,4 +181,8 @@ class UsageAnomalyDetector:
 
 
 # Global instance
-usage_anomaly_detector = UsageAnomalyDetector()
+usage_anomaly_signal_detector = UsageAnomalySignalDetector()
+
+# Geriye uyumluluk için alias
+usage_anomaly_detector = usage_anomaly_signal_detector
+UsageAnomalyDetector = UsageAnomalySignalDetector

@@ -1,23 +1,31 @@
 """
-Fraud Detection Service
-AI tabanlı fraud tespit ve tüketim anomali kontrolü
+Anomaly Signal Service
+İstatistiksel anomali sinyal sistemi - tüketim analizi
+
+v1 Not: Bu sistem ML/AI modeli KULLANMAZ.
+Sadece istatistiksel analiz (z-score, standart sapma, trend) kullanır.
+Ceza kararları SADECE personel veya admin tarafından verilir.
 """
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from database.db import get_db
-from database.models import WaterMeterReading, FraudRecord, UserDeposit
+from database.models import WaterMeterReading, FraudRecord, UserDeposit, AnomalySignal
 from sqlalchemy import desc, func
 
-logger = logging.getLogger("fraud-detection")
+logger = logging.getLogger("anomaly-signal-service")
 
 
-class FraudDetectionService:
+class AnomalySignalService:
     """
-    Su faturası fraud tespit servisi.
+    Anomali Sinyal Servisi (İstatistiksel Analiz)
+    
+    NOT: Bu servis ML/AI KULLANMAZ ve CEZA UYGULAMAZ.
+    Sadece sinyal üretir, karar personel/admin tarafından verilir.
+    
     - Tüketim düşüş kontrolü (%50+ uyarısı)
-    - OCR anomali tespiti
-    - Blockchain penalty tetikleme
+    - OCR anomali sinyali
+    - Sinyal kaydı oluşturma
     """
     
     CONSUMPTION_DROP_THRESHOLD = 0.50  # %50 düşüş eşiği
@@ -200,63 +208,94 @@ class FraudDetectionService:
             "details": "Anomali tespit edilmedi"
         }
     
+    def create_anomaly_signal(
+        self, 
+        user_address: str, 
+        signal_type: str, 
+        details: str,
+        confidence: float = 0.8,
+        detected_by: str = "statistical_system"
+    ) -> dict:
+        """
+        Anomali sinyali KAYDI oluştur.
+        
+        ÖNEMLİ: Bu metod CEZA UYGULAMAZ!
+        Sadece sinyal kaydı oluşturur, personel/admin incelemesi bekler.
+        
+        Args:
+            user_address: Kullanıcı cüzdan adresi
+            signal_type: Sinyal türü (consumption_drop, index_decreased, vb.)
+            details: Sinyal detayı
+            confidence: Güven skoru (0-1)
+            detected_by: Tespit eden sistem
+            
+        Returns:
+            {"success": bool, "signal_id": int, "status": str}
+        """
+        try:
+            with get_db() as db:
+                # Sinyal kaydı oluştur
+                signal = AnomalySignal(
+                    wallet_address=user_address,
+                    signal_type=signal_type,
+                    details=details,
+                    confidence=confidence,
+                    status="pending_review",  # Henüz karar yok
+                    detected_by=detected_by,
+                    created_at=datetime.utcnow()
+                )
+                db.add(signal)
+                db.commit()
+                db.refresh(signal)
+                
+                logger.info(f"Anomaly signal created for {user_address}: {signal_type} (id={signal.id})")
+                
+                return {
+                    "success": True,
+                    "signal_id": signal.id,
+                    "status": "pending_review",
+                    "message": "Sinyal kaydedildi, personel incelemesi bekleniyor"
+                }
+                
+        except Exception as e:
+            logger.exception(f"Failed to create anomaly signal: {e}")
+            return {
+                "success": False,
+                "signal_id": None,
+                "status": "error",
+                "message": str(e)
+            }
+    
+    # DEPRECATED - v1'de kullanılmıyor, geriye uyumluluk için saklanıyor
     def trigger_fraud_penalty(
         self, 
         user_address: str, 
         fraud_type: str, 
         reason: str,
-        detected_by: str = "ai_system"
+        detected_by: str = "statistical_system"
     ) -> Tuple[bool, Optional[str]]:
         """
-        Blockchain'de fraud cezası tetikle.
+        ⚠️ DEPRECATED - v1'de kullanılmıyor!
         
-        Returns:
-            (success, transaction_hash)
+        Ceza kararları SADECE admin_routes.py üzerinden verilir.
+        Bu metod geriye uyumluluk için saklanıyor ama çağrılmamalı.
+        
+        Bunun yerine create_anomaly_signal() kullanın.
         """
-        try:
-            if not self.blockchain_service:
-                logger.warning("Blockchain service not configured")
-                return False, None
-            
-            # Fraud kaydı oluştur
-            with get_db() as db:
-                # Kullanıcı depozitosu kontrol
-                deposit = db.query(UserDeposit).filter(
-                    UserDeposit.wallet_address == user_address
-                ).first()
-                
-                if not deposit or deposit.deposit_amount <= 0:
-                    logger.warning(f"User {user_address} has no deposit")
-                    return False, None
-                
-                # Ceza miktarı hesapla (%50)
-                penalty_amount = deposit.deposit_amount * 0.5
-                
-                # Blockchain'e gönder
-                tx_hash = self.blockchain_service.penalize_user_deposit(
-                    user_address,
-                    50,  # %50
-                    reason
-                )
-                
-                # Fraud kaydı ekle
-                fraud_record = FraudRecord(
-                    wallet_address=user_address,
-                    fraud_type=fraud_type,
-                    detection_method="ai_ocr_anomaly" if fraud_type == "ai_detected" else fraud_type,
-                    penalty_amount=penalty_amount,
-                    transaction_hash=tx_hash,
-                    detected_by=detected_by
-                )
-                db.add(fraud_record)
-                db.commit()
-                
-                logger.info(f"Fraud penalty triggered for {user_address}: {tx_hash}")
-                return True, tx_hash
-                
-        except Exception as e:
-            logger.exception(f"Fraud penalty failed: {e}")
-            return False, None
+        logger.warning(f"trigger_fraud_penalty called but DISABLED in v1 for {user_address}")
+        
+        # v1'de otomatik ceza DEVRE DIŞI
+        # Bunun yerine sinyal kaydı oluştur
+        signal_result = self.create_anomaly_signal(
+            user_address=user_address,
+            signal_type=fraud_type,
+            details=reason,
+            detected_by=detected_by
+        )
+        
+        if signal_result["success"]:
+            return True, f"signal_id:{signal_result['signal_id']}"
+        return False, None
     
     def get_user_fraud_status(self, user_address: str) -> dict:
         """
@@ -310,4 +349,8 @@ class FraudDetectionService:
 
 
 # Global instance
-fraud_detection_service = FraudDetectionService()
+anomaly_signal_service = AnomalySignalService()
+
+# Geriye uyumluluk için alias (eski import'ları kırmamak için)
+fraud_detection_service = anomaly_signal_service
+FraudDetectionService = AnomalySignalService

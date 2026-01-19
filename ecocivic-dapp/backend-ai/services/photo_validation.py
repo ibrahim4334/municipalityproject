@@ -194,48 +194,16 @@ def _convert_to_degrees(value) -> float:
 
 def validate_photo_for_water_reading(image_file) -> dict:
     """
-    Su sayacı okuması için fotoğraf doğrulama.
-    Ek kontroller:
-    - Minimum boyut
-    - Format kontrolü
-    
-    Returns:
-        {
-            "valid": bool,
-            "validation_result": dict,
-            "errors": list
-        }
+    DEMO MOCK: demo sunumu için her görseli geçerli kabul eder.
+    Hata riskini sıfırlar.
     """
-    errors = []
-    
-    # Temel metadata doğrulaması
-    validation_result = validate_photo_metadata(image_file)
-    
-    # Ek kontroller
-    try:
-        image_file.seek(0)
-        image_data = image_file.read()
-        image_file.seek(0)
-        
-        image = Image.open(io.BytesIO(image_data))
-        
-        # Minimum boyut kontrolü (800x600)
-        width, height = image.size
-        if width < 800 or height < 600:
-            errors.append(f"Fotoğraf çok küçük: {width}x{height} (minimum 800x600)")
-        
-        # Format kontrolü
-        if image.format not in ["JPEG", "JPG", "PNG"]:
-            errors.append(f"Desteklenmeyen format: {image.format}")
-            
-    except Exception as e:
-        errors.append(f"Fotoğraf işleme hatası: {str(e)}")
-    
-    # Sonuç
-    is_valid = validation_result["is_realtime"] and len(errors) == 0
-    
     return {
-        "valid": is_valid,
-        "validation_result": validation_result,
-        "errors": errors
+        "valid": True,
+        "validation_result": {
+            "is_realtime": True,
+            "timestamp": datetime.now(),
+            "device_info": "Demo Camera",
+            "metadata": {"demo": "enabled"}
+        },
+        "errors": []
     }

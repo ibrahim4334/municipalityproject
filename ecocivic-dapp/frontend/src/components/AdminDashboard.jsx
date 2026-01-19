@@ -220,6 +220,16 @@ export default function AdminDashboard() {
                 <GavelIcon /> Fraud İtirazları (Son Karar Makamı)
             </Typography>
 
+            <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="body2" fontWeight="bold" gutterBottom>
+                    ⚠️ Blockchain Uyarısı - Kararlar Değiştirilemez!
+                </Typography>
+                <Typography variant="body2">
+                    Burada verdiğiniz kararlar blockchain'e kaydedilir ve <strong>sonradan değiştirilemez (immutable)</strong>.
+                    Lütfen kararlarınızı dikkatli verin.
+                </Typography>
+            </Alert>
+
             <Alert severity="info" sx={{ mb: 2 }}>
                 Personel tarafından fraud işaretlenen beyanlar için vatandaşların itirazları burada görüntülenir.
                 <strong> Yönetici olarak son kararı siz verirsiniz.</strong>
@@ -302,13 +312,13 @@ export default function AdminDashboard() {
             )}
 
             {/* Yönetici Bilgileri */}
-            <Paper sx={{ p: 2, mt: 3, bgcolor: 'grey.50' }}>
-                <Typography variant="subtitle2" gutterBottom>
+            <Paper sx={{ p: 3, mt: 3, bgcolor: '#283593', color: 'white', borderRadius: 2 }}>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
                     📋 Yönetici Yetkileri:
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{ lineHeight: 1.8, opacity: 0.9 }}>
                     • <strong>İtiraz Kararı:</strong> Fraud kararına itiraz eden vatandaşlar için son kararı verir<br />
-                    • <strong>İstatistik İzleme:</strong> Sistem genelindeki beyan, onay ve fraud sayılarını takip eder<br />
+                    • <strong>İstatistik İzleme:</strong> Sistem genelindeki beyan, onay ve anomali sayılarını takip eder<br />
                     • <strong>Kabul:</strong> İtiraz kabul edilirse vatandaşın fraud kaydı silinir ve hakkı geri verilir<br />
                     • <strong>Red:</strong> İtiraz reddedilirse fraud kararı kesinleşir
                 </Typography>

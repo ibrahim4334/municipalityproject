@@ -238,9 +238,9 @@ export default function WaterMeterUpload() {
 
       // Show consumption warning acknowledgment if present
       if (data.consumption_warning) {
-        setStatus(`⚠️ Düşük tüketim kaydedildi (%${data.consumption_warning.drop_percent} düşüş onaylandı). AI onayı alındı...`);
+        setStatus(`⚠️ Düşük tüketim kaydedildi (%${data.consumption_warning.drop_percent} düşüş onaylandı). OCR doğrulandı...`);
       } else {
-        setStatus("✅ AI onayı alındı. Blockchain üzerinde fatura ödeniyor...");
+        setStatus("✅ OCR doğrulandı. Blockchain üzerinde fatura kaydediliyor...");
       }
 
       // 2️⃣ Blockchain – WaterBilling kontratı
@@ -266,13 +266,17 @@ export default function WaterMeterUpload() {
         setConsumptionWarning(null);
 
         // Fatura sonucunu göster
+        const calculatedConsumption = Math.max(0, parseInt(data.current_index - (data.historical_avg || 0)));
         setBillResult({
           meterNumber: data.meter_no,
-          consumption: data.current_index - (data.historical_avg || 0), // Basit hesap
+          consumption: calculatedConsumption,
           pricePerTon: 10,
-          totalAmount: ((data.current_index - (data.historical_avg || 0)) * 10).toFixed(2),
+          totalAmount: (calculatedConsumption * 10).toFixed(2),
           dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('tr-TR'),
-          pdfUrl: data.bill_pdf
+          pdfUrl: data.bill_pdf,
+          txHash: receipt.hash,
+          currentIndex: data.current_index || 0,
+          previousIndex: (data.current_index || 0) - calculatedConsumption
         });
       } else {
         throw new Error("Transaction başarısız oldu");
@@ -428,6 +432,11 @@ export default function WaterMeterUpload() {
               <span>Sayaç No:</span>
               <strong>{billResult.meterNumber}</strong>
             </div>
+            {/* Yeni: Endeks Bilgileri */}
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9em", color: "#666" }}>
+              <span>İlk / Son Endeks:</span>
+              <span>{parseInt(billResult.previousIndex)} / {billResult.currentIndex}</span>
+            </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Tüketim:</span>
               <strong>{parseInt(billResult.consumption)} m³</strong>
@@ -465,6 +474,32 @@ export default function WaterMeterUpload() {
                 >
                   📄 Faturayı İndir (PDF)
                 </a>
+              </div>
+            )}
+
+            {/* v1: Blockchain Kaydı Gösterimi */}
+            {billResult.txHash && (
+              <div style={{
+                marginTop: "15px",
+                padding: "10px",
+                backgroundColor: "#e3f2fd",
+                borderRadius: "6px",
+                border: "1px solid #2196f3"
+              }}>
+                <strong style={{ color: "#1976d2" }}>🔗 Blockchain Kaydı</strong>
+                <p style={{ fontSize: "12px", color: "#666", margin: "5px 0" }}>
+                  Bu fatura blockchain'e kaydedildi ve değiştirilemez.
+                </p>
+                <div style={{
+                  fontSize: "11px",
+                  fontFamily: "monospace",
+                  backgroundColor: "#f5f5f5",
+                  padding: "5px",
+                  borderRadius: "4px",
+                  wordBreak: "break-all"
+                }}>
+                  TX: {billResult.txHash}
+                </div>
               </div>
             )}
           </div>
@@ -539,14 +574,17 @@ export default function WaterMeterUpload() {
 
           <div style={{ marginBottom: "15px" }}>
             <label style={{ display: "block", marginBottom: "4px", fontWeight: "bold" }}>
-              Güncel Tüketim Değeri (m³):
+              Son Endeks (m³):
             </label>
+            <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>
+              Sayacın üzerindeki son rakamı giriniz. Tüketim otomatik hesaplanacaktır.
+            </div>
             <input
               type="number"
               value={manualConsumption}
               onChange={(e) => setManualConsumption(e.target.value)}
-              placeholder="Örn: 1234.56"
-              step="0.01"
+              placeholder="Örn: 1135"
+              step="1"
               min="0"
               style={{
                 width: "100%",

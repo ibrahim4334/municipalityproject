@@ -1,6 +1,9 @@
 """
-ML-Based Fraud Detection
-Zaman serisi analizi ve makine öğrenimi ile fraud tespiti
+Statistical Anomaly Signal System
+Zaman serisi analizi ve istatistiksel yöntemlerle anomali sinyal tespiti
+
+v1 Not: Bu sistem ML/AI modeli KULLANMAZ. 
+İstatistiksel analiz (z-score, trend, standart sapma) ile çalışır.
 """
 import logging
 from typing import Dict, List, Optional, Tuple
@@ -8,18 +11,21 @@ from datetime import datetime, timedelta
 import statistics
 import math
 
-logger = logging.getLogger("ml-fraud-detection")
+logger = logging.getLogger("anomaly-signal-system")
 
 
-class MLFraudDetector:
+class AnomalySignalDetector:
     """
-    Makine öğrenimi tabanlı fraud tespiti
+    İstatistiksel Anomali Sinyal Tespit Sistemi
+    
+    NOT: Bu sistem makine öğrenimi KULLANMAZ.
+    Sadece istatistiksel yöntemler (z-score, trend analizi, standart sapma) ile çalışır.
     
     Özellikler:
     - Zaman serisi analizi
-    - Trend tahmini
-    - Anomali puanlama
-    - Seasonality detection
+    - Trend tahmini  
+    - Anomali sinyal puanlama
+    - Mevsimsel düzeltme
     """
     
     def __init__(self):
@@ -216,14 +222,16 @@ class MLFraudDetector:
             "details": details
         }
     
-    def predict_fraud_probability(
+    def calculate_anomaly_signal(
         self,
         user_history: List[Dict],
         current_reading: float,
         metadata: Optional[Dict] = None
     ) -> Dict:
         """
-        Fraud olasılığı tahmini
+        Anomali sinyal gücü hesaplama (İstatistiksel analiz)
+        
+        NOT: Bu metod ML/AI KULLANMAZ. Sadece istatistiksel hesaplama yapar.
         
         Args:
             user_history: [{reading, consumption, timestamp}, ...]
@@ -232,20 +240,20 @@ class MLFraudDetector:
             
         Returns:
             {
-                "fraud_probability": float (0-1),
-                "risk_level": str,
-                "risk_factors": list,
+                "signal_strength": float (0-1),
+                "signal_level": str,
+                "signal_factors": list,
                 "recommendation": str
             }
         """
-        risk_factors = []
-        probability = 0.0
+        signal_factors = []
+        signal_strength = 0.0
         
         if not user_history:
             return {
-                "fraud_probability": 0.0,
-                "risk_level": "unknown",
-                "risk_factors": ["Yetersiz geçmiş veri"],
+                "signal_strength": 0.0,
+                "signal_level": "unknown",
+                "signal_factors": ["Yetersiz geçmiş veri"],
                 "recommendation": "Veri toplamaya devam"
             }
         
@@ -253,65 +261,69 @@ class MLFraudDetector:
         consumptions = [h.get("consumption", 0) for h in user_history if h.get("consumption")]
         
         if consumptions:
-            # Anomaly analysis
+            # Anomaly analysis (istatistiksel)
             last_consumption = current_reading - (user_history[-1].get("reading", current_reading) if user_history else current_reading)
             if last_consumption > 0:
                 anomaly = self.calculate_anomaly_score(last_consumption, consumptions)
                 
                 if anomaly["is_anomaly"]:
-                    probability += 0.3
-                    risk_factors.append(f"Anomali tespit: {anomaly['anomaly_type']}")
+                    signal_strength += 0.3
+                    signal_factors.append(f"Anomali sinyal: {anomaly['anomaly_type']}")
                 
-                # Z-score contribution
+                # Z-score contribution (istatistiksel)
                 z = anomaly["details"].get("z_score", 0)
                 if abs(z) > 2:
-                    probability += min(0.2, abs(z) * 0.05)
-                    risk_factors.append(f"Z-score: {z:.2f}")
+                    signal_strength += min(0.2, abs(z) * 0.05)
+                    signal_factors.append(f"Z-score sapması: {z:.2f}")
             
-            # Trend analysis
+            # Trend analysis (istatistiksel)
             trend = self.detect_trend(consumptions)
             if trend["trend"] == "decreasing" and trend["slope"] < -2:
-                probability += 0.15
-                risk_factors.append("Sürekli düşüş trendi")
+                signal_strength += 0.15
+                signal_factors.append("Sürekli düşüş trendi")
         
         # Metadata analysis
         if metadata:
             if metadata.get("photo_age_minutes", 0) > 5:
-                probability += 0.1
-                risk_factors.append("Eski fotoğraf")
+                signal_strength += 0.1
+                signal_factors.append("Eski fotoğraf")
             
             if not metadata.get("has_gps", True):
-                probability += 0.05
-                risk_factors.append("GPS yok")
+                signal_strength += 0.05
+                signal_factors.append("GPS yok")
             
             if metadata.get("edited", False):
-                probability += 0.2
-                risk_factors.append("Fotoğraf düzenlenmiş")
+                signal_strength += 0.2
+                signal_factors.append("Fotoğraf düzenlenmiş")
         
         # Normalize
-        probability = min(1.0, max(0.0, probability))
+        signal_strength = min(1.0, max(0.0, signal_strength))
         
-        # Risk level
-        if probability >= 0.7:
-            risk_level = "critical"
-            recommendation = "Acil fiziksel kontrol gerekli"
-        elif probability >= 0.5:
-            risk_level = "high"
-            recommendation = "Fiziksel kontrol planla"
-        elif probability >= 0.3:
-            risk_level = "medium"
-            recommendation = "Yakından izle"
+        # Signal level (sinyal seviyesi - karar DEĞİL)
+        if signal_strength >= 0.7:
+            signal_level = "critical"
+            recommendation = "Personel incelemesi gerekli"
+        elif signal_strength >= 0.5:
+            signal_level = "high"
+            recommendation = "Personel incelemesi önerilir"
+        elif signal_strength >= 0.3:
+            signal_level = "medium"
+            recommendation = "İzlemeye devam"
         else:
-            risk_level = "low"
+            signal_level = "low"
             recommendation = "Normal işlem"
         
         return {
-            "fraud_probability": round(probability, 3),
-            "risk_level": risk_level,
-            "risk_factors": risk_factors,
+            "signal_strength": round(signal_strength, 3),
+            "signal_level": signal_level,
+            "signal_factors": signal_factors,
             "recommendation": recommendation
         }
 
 
 # Global instance
-ml_fraud_detector = MLFraudDetector()
+anomaly_signal_detector = AnomalySignalDetector()
+
+# Geriye uyumluluk için alias (eski import'ları kırmamak için)
+ml_fraud_detector = anomaly_signal_detector
+MLFraudDetector = AnomalySignalDetector

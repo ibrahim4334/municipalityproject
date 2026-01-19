@@ -202,6 +202,30 @@ export default function RecyclingQRWithTimer({
                 </Typography>
             </Paper>
 
+            {/* Blockchain Bilgisi */}
+            <Alert severity="success" sx={{ mb: 2, textAlign: 'left' }}>
+                <Typography variant="body2" fontWeight="bold" gutterBottom>
+                    🔗 Blockchain Kaydı
+                </Typography>
+                <Typography variant="body2">
+                    Bu QR kodunun hash'i blockchain'e kaydedilmiştir.
+                    Tekrar kullanılamaz ve değiştirilemez.
+                </Typography>
+                {qrData?.hash && (
+                    <Typography variant="caption" sx={{
+                        display: 'block',
+                        mt: 1,
+                        fontFamily: 'monospace',
+                        bgcolor: 'rgba(0,0,0,0.05)',
+                        p: 0.5,
+                        borderRadius: 1,
+                        wordBreak: 'break-all'
+                    }}>
+                        Hash: {qrData.hash.substring(0, 20)}...
+                    </Typography>
+                )}
+            </Alert>
+
             {/* Bildirim */}
             <Alert severity="info" icon={<CheckCircleIcon />}>
                 <Typography variant="body2">

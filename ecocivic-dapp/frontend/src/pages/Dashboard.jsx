@@ -185,15 +185,15 @@ function Dashboard() {
                 </Box>
             </Grid>
 
-            {/* Fraud Uyarısı */}
+            {/* Anomaly Signal Uyarısı */}
             {hasPendingFraud && (
                 <Grid item xs={12}>
-                    <Alert severity="error" icon={<WarningIcon />}>
+                    <Alert severity="warning" icon={<WarningIcon />}>
                         <Typography variant="subtitle2" fontWeight="bold">
-                            ⚠️ Bekleyen Fraud İncelemesi
+                            ⚠️ Bekleyen Anomali İncelemesi
                         </Typography>
                         <Typography variant="body2">
-                            Hesabınızda inceleme bekleyen bir işlem bulunmaktadır. Lütfen admin onayını bekleyin.
+                            Hesabınızda inceleme bekleyen bir işlem bulunmaktadır. Sistem tarafından sinyal tespit edildi.
                         </Typography>
                     </Alert>
                 </Grid>
@@ -213,6 +213,34 @@ function Dashboard() {
                         <Typography variant="body2" color="text.secondary">
                             {!account ? "Lütfen cüzdan bağlayın" : "Cüzdan Bakiyesi"}
                         </Typography>
+
+                        {/* Metamask'a Ekle Butonu */}
+                        <Button
+                            variant="outlined"
+                            size="small"
+                            fullWidth
+                            sx={{ mt: 1, textTransform: 'none' }}
+                            onClick={async () => {
+                                try {
+                                    await window.ethereum.request({
+                                        method: 'wallet_watchAsset',
+                                        params: {
+                                            type: 'ERC20',
+                                            options: {
+                                                address: import.meta.env.VITE_CONTRACT_ADDRESS_BELT,
+                                                symbol: 'BELT',
+                                                decimals: 18,
+                                                image: 'https://cdn-icons-png.flaticon.com/512/2091/2091665.png', // Örnek icon
+                                            },
+                                        },
+                                    });
+                                } catch (error) {
+                                    console.error(error);
+                                }
+                            }}
+                        >
+                            🦊 Cüzdana Ekle
+                        </Button>
 
                         {/* Pending Rewards Section */}
                         {pendingRewards > 0 && (
@@ -236,8 +264,11 @@ function Dashboard() {
                             </Box>
                         )}
 
-                        {/* Fraud Hak Göstergesi */}
+                        {/* İtiraz Hakkı Göstergesi */}
                         <Divider sx={{ my: 2 }} />
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                            🛡️ 2 Hak Sistemi (Blockchain tarafından korunur)
+                        </Typography>
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                             <Chip
                                 label={`♻️ Geri Dönüşüm Hakkı: ${fraudWarnings.recycling}/2`}

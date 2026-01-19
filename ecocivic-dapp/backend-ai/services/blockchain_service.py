@@ -154,18 +154,40 @@ class BlockchainService:
             logger.error(f"Water billing transaction failed: {e}")
             raise e
     
-    def penalize_user_deposit(self, user_address: str, penalty_percent: int, reason: str) -> str:
+    def penalize_user_deposit(
+        self, 
+        user_address: str, 
+        penalty_percent: int, 
+        reason: str,
+        decision_id: str = None
+    ) -> str:
         """
         WaterBillingFraudManager üzerinden depozito cezası kes.
+        
+        ⚠️ v1 ÖNEMLİ: Bu fonksiyon SADECE admin/personel kararı sonrası çağrılmalıdır!
+        Otomatik ceza uygulaması v1'de DEVRE DIŞI'dır.
         
         Args:
             user_address: Kullanıcı cüzdan adresi
             penalty_percent: Ceza yüzdesi (0-100)
             reason: Ceza sebebi
+            decision_id: Admin/personel karar ID'si (v1'de zorunlu!)
             
         Returns:
             Transaction hash
+            
+        Raises:
+            ValueError: decision_id sağlanmadığında (v1 güvenlik kontrolü)
         """
+        # v1 GUARD: Otomatik ceza engelle
+        if not decision_id:
+            logger.warning(f"penalize_user_deposit called WITHOUT decision_id for {user_address} - BLOCKED in v1")
+            raise ValueError(
+                "v1'de penalize_user_deposit sadece admin/personel kararı sonrası çağrılabilir. "
+                "decision_id parametresi zorunludur. "
+                "Otomatik ceza için create_anomaly_signal() kullanın."
+            )
+        
         try:
             if not self.private_key:
                 raise ValueError("Wallet not configured")
@@ -190,9 +212,12 @@ class BlockchainService:
             
             contract = self.w3.eth.contract(address=fraud_manager_address, abi=fraud_manager_abi)
             
+            # Reason'a decision_id ekle (blockchain'de izlenebilirlik)
+            full_reason = f"{reason} | decision_id: {decision_id}"
+            
             tx = contract.functions.penalizeForAIFraud(
                 user_address,
-                reason
+                full_reason
             ).build_transaction({
                 'from': self.account.address,
                 'nonce': self.w3.eth.get_transaction_count(self.account.address),
@@ -203,6 +228,7 @@ class BlockchainService:
             signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
             
+            logger.info(f"Penalty applied for {user_address} with decision_id={decision_id}: {self.w3.to_hex(tx_hash)}")
             return self.w3.to_hex(tx_hash)
             
         except Exception as e:

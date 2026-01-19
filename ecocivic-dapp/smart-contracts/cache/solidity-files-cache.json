@@ -686,8 +686,8 @@
       ]
     },
     "C:\\Users\\ASUS\\Desktop\\municipality project files\\clean-repo\\ecocivic-dapp\\smart-contracts\\contracts\\RecyclingRewards.sol": {
-      "lastModificationDate": 1768426106231,
-      "contentHash": "3d990f6b9accaf2d817991bb17b15374",
+      "lastModificationDate": 1768805093557,
+      "contentHash": "66aa397a2b474e1563cf5e495d086d57",
       "sourceName": "contracts/RecyclingRewards.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -831,8 +831,8 @@
       ]
     },
     "C:\\Users\\ASUS\\Desktop\\municipality project files\\clean-repo\\ecocivic-dapp\\smart-contracts\\contracts\\WaterBillingFraudManager.sol": {
-      "lastModificationDate": 1768426059287,
-      "contentHash": "0ccd4ed31149a65349b3ac849a583b8a",
+      "lastModificationDate": 1768805258777,
+      "contentHash": "ba39037c12e9ffdf147113995edf57cc",
       "sourceName": "contracts/WaterBillingFraudManager.sol",
       "solcConfig": {
         "version": "0.8.20",

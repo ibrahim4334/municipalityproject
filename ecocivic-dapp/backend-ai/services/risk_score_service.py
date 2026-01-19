@@ -1,31 +1,38 @@
 """
-User Risk Score Service
-Kullanıcı fraud risk skor kartı
+Anomaly Signal Report Service
+Kullanıcı anomali sinyal raporu - istatistiksel analiz
+
+v1 Not: Bu servis ML/AI KULLANMAZ.
+İstatistiksel analiz ile sinyal raporu üretir.
+Sonular KARAR değil, sadece SINYAL'dir.
 """
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
-logger = logging.getLogger("risk-score")
+logger = logging.getLogger("anomaly-signal-report")
 
 
 @dataclass
-class RiskFactor:
-    """Risk faktörü"""
+class SignalFactor:
+    """Sinyal faktörü"""
     name: str
     weight: float
     score: float
     description: str
 
 
-class RiskScoreCard:
+class AnomalySignalReport:
     """
-    Kullanıcı Risk Skor Kartı
+    Kullanıcı Anomali Sinyal Raporu
+    
+    NOT: Bu servis ML/AI KULLANMAZ ve KARAR VERMEZ.
+    Sadece istatistiksel sinyal üretir.
     
     Kategoriler:
     - Tüketim davranışı
-    - Fraud geçmişi
+    - Anomali geçmişi
     - Doğrulama kalitesi
     - Hesap yaşı ve aktivite
     """
@@ -46,15 +53,15 @@ class RiskScoreCard:
         consumption_history: List[float],
         warning_count: int = 0,
         confirmed_readings: int = 0
-    ) -> Tuple[float, List[RiskFactor]]:
+    ) -> Tuple[float, List[SignalFactor]]:
         """
-        Tüketim davranış skoru (0-100, düşük = riskli)
+        Tüketim davranış skoru (0-100, düşük = yüksek sinyal)
         """
         score = 100
         factors = []
         
         if not consumption_history:
-            return 50, [RiskFactor("no_history", 1.0, 50, "Tüketim geçmişi yok")]
+            return 50, [SignalFactor("no_history", 1.0, 50, "Tüketim geçmişi yok")]
         
         # 1. Tutarlılık
         if len(consumption_history) >= 3:
@@ -65,13 +72,13 @@ class RiskScoreCard:
             
             if cv > 0.5:
                 score -= 20
-                factors.append(RiskFactor(
+                factors.append(SignalFactor(
                     "high_variance", 0.2, cv * 100,
                     f"Yüksek tüketim varyansı (CV: {cv:.2f})"
                 ))
             elif cv < 0.15:
                 score += 5
-                factors.append(RiskFactor(
+                factors.append(SignalFactor(
                     "consistent", 0.05, 100 - cv * 100,
                     "Tutarlı tüketim"
                 ))
@@ -80,7 +87,7 @@ class RiskScoreCard:
         if warning_count > 0:
             penalty = min(30, warning_count * 10)
             score -= penalty
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "warnings", warning_count * 0.1, penalty,
                 f"{warning_count} kez tüketim uyarısı"
             ))
@@ -91,45 +98,45 @@ class RiskScoreCard:
             confirm_rate = confirmed_readings / total_readings
             if confirm_rate < 0.7:
                 score -= 15
-                factors.append(RiskFactor(
+                factors.append(SignalFactor(
                     "low_confirm", 0.15, (1 - confirm_rate) * 100,
                     f"Düşük onay oranı: {confirm_rate:.0%}"
                 ))
         
         return max(0, min(100, score)), factors
     
-    def calculate_fraud_history_score(
+    def calculate_anomaly_history_score(
         self,
-        ai_fraud_count: int = 0,
-        inspection_fraud_count: int = 0,
+        system_anomaly_count: int = 0,
+        inspection_anomaly_count: int = 0,
         total_penalties: float = 0,
         is_blacklisted: bool = False
-    ) -> Tuple[float, List[RiskFactor]]:
+    ) -> Tuple[float, List[SignalFactor]]:
         """
-        Fraud geçmişi skoru (0-100, düşük = riskli)
+        Anomali geçmişi skoru (0-100, düşük = yüksek sinyal)
         """
         if is_blacklisted:
-            return 0, [RiskFactor("blacklisted", 1.0, 0, "Kara listede")]
+            return 0, [SignalFactor("blacklisted", 1.0, 0, "Kara listede")]
         
         score = 100
         factors = []
         
-        # AI fraud
-        if ai_fraud_count > 0:
-            penalty = min(40, ai_fraud_count * 15)
+        # Sistem anomali tespiti
+        if system_anomaly_count > 0:
+            penalty = min(40, system_anomaly_count * 15)
             score -= penalty
-            factors.append(RiskFactor(
-                "ai_fraud", ai_fraud_count * 0.15, penalty,
-                f"{ai_fraud_count} AI fraud tespiti"
+            factors.append(SignalFactor(
+                "system_anomaly", system_anomaly_count * 0.15, penalty,
+                f"{system_anomaly_count} istatistiksel anomali tespiti"
             ))
         
-        # Inspection fraud
-        if inspection_fraud_count > 0:
-            penalty = min(50, inspection_fraud_count * 25)
+        # Fiziksel kontrol anomali
+        if inspection_anomaly_count > 0:
+            penalty = min(50, inspection_anomaly_count * 25)
             score -= penalty
-            factors.append(RiskFactor(
-                "inspection_fraud", inspection_fraud_count * 0.25, penalty,
-                f"{inspection_fraud_count} fiziksel kontrol fraud"
+            factors.append(SignalFactor(
+                "inspection_anomaly", inspection_anomaly_count * 0.25, penalty,
+                f"{inspection_anomaly_count} fiziksel kontrol anomali"
             ))
         
         # Total penalties
@@ -137,7 +144,7 @@ class RiskScoreCard:
             tier = min(3, int(total_penalties / 1000))
             penalty = tier * 10
             score -= penalty
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "penalties", tier * 0.1, penalty,
                 f"Toplam ceza: {total_penalties:.0f} TL"
             ))
@@ -149,7 +156,7 @@ class RiskScoreCard:
         avg_photo_age: float = 0,  # dakika
         gps_available_rate: float = 1.0,
         editing_detected: bool = False
-    ) -> Tuple[float, List[RiskFactor]]:
+    ) -> Tuple[float, List[SignalFactor]]:
         """
         Doğrulama kalitesi skoru (0-100)
         """
@@ -160,7 +167,7 @@ class RiskScoreCard:
         if avg_photo_age > 5:
             penalty = min(30, (avg_photo_age - 5) * 3)
             score -= penalty
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "photo_age", 0.3, penalty,
                 f"Ort. fotoğraf yaşı: {avg_photo_age:.1f} dk"
             ))
@@ -169,7 +176,7 @@ class RiskScoreCard:
         if gps_available_rate < 0.8:
             penalty = (1 - gps_available_rate) * 30
             score -= penalty
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "gps_missing", 0.3, penalty,
                 f"GPS bulunma oranı: {gps_available_rate:.0%}"
             ))
@@ -177,7 +184,7 @@ class RiskScoreCard:
         # Editing
         if editing_detected:
             score -= 40
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "editing", 0.4, 40,
                 "Fotoğraf düzenleme tespiti"
             ))
@@ -189,7 +196,7 @@ class RiskScoreCard:
         account_age_days: int = 0,
         total_submissions: int = 0,
         payment_history_good: bool = True
-    ) -> Tuple[float, List[RiskFactor]]:
+    ) -> Tuple[float, List[SignalFactor]]:
         """
         Hesap durumu skoru (0-100)
         """
@@ -199,13 +206,13 @@ class RiskScoreCard:
         # Account age
         if account_age_days > 365:
             score += 20
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "established", 0.2, 80,
                 "1 yıldan eski hesap"
             ))
         elif account_age_days < 30:
             score -= 15
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "new_account", 0.15, 30,
                 "Yeni hesap (< 30 gün)"
             ))
@@ -213,13 +220,13 @@ class RiskScoreCard:
         # Activity
         if total_submissions > 12:
             score += 15
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "active", 0.15, 85,
                 "Aktif kullanıcı"
             ))
         elif total_submissions < 3:
             score -= 10
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "inactive", 0.1, 40,
                 "Düşük aktivite"
             ))
@@ -227,27 +234,30 @@ class RiskScoreCard:
         # Payment history
         if not payment_history_good:
             score -= 25
-            factors.append(RiskFactor(
+            factors.append(SignalFactor(
                 "payment_issues", 0.25, 25,
                 "Ödeme geçmişi sorunlu"
             ))
         
         return max(0, min(100, score)), factors
     
-    def generate_risk_card(
+    def generate_signal_report(
         self,
         user_data: Dict
     ) -> Dict:
         """
-        Kapsamlı risk kartı oluştur
+        Kapsamlı anomali sinyal raporu oluştur
+        
+        NOT: Bu rapor KARAR içermez, sadece sinyal üretir.
+        Kararlar personel/admin tarafından verilir.
         
         Args:
             user_data: {
                 consumption_history: List[float],
                 warning_count: int,
                 confirmed_readings: int,
-                ai_fraud_count: int,
-                inspection_fraud_count: int,
+                system_anomaly_count: int,
+                inspection_anomaly_count: int,
                 total_penalties: float,
                 is_blacklisted: bool,
                 avg_photo_age: float,
@@ -261,9 +271,9 @@ class RiskScoreCard:
         Returns:
             {
                 "overall_score": int (0-100),
-                "risk_level": str,
+                "signal_level": str,
                 "categories": {...},
-                "top_risk_factors": [...],
+                "top_signal_factors": [...],
                 "recommendation": str
             }
         """
@@ -283,19 +293,19 @@ class RiskScoreCard:
         }
         all_factors.extend(cons_factors)
         
-        # 2. Fraud history
-        fraud_score, fraud_factors = self.calculate_fraud_history_score(
-            user_data.get("ai_fraud_count", 0),
-            user_data.get("inspection_fraud_count", 0),
+        # 2. Anomaly history
+        anomaly_score, anomaly_factors = self.calculate_anomaly_history_score(
+            user_data.get("system_anomaly_count", 0),
+            user_data.get("inspection_anomaly_count", 0),
             user_data.get("total_penalties", 0),
             user_data.get("is_blacklisted", False)
         )
-        categories["fraud_history"] = {
-            "score": fraud_score,
+        categories["anomaly_history"] = {
+            "score": anomaly_score,
             "weight": self.WEIGHTS["fraud_history"],
-            "factors": [f.__dict__ for f in fraud_factors]
+            "factors": [f.__dict__ for f in anomaly_factors]
         }
-        all_factors.extend(fraud_factors)
+        all_factors.extend(anomaly_factors)
         
         # 3. Verification quality
         ver_score, ver_factors = self.calculate_verification_score(
@@ -326,35 +336,36 @@ class RiskScoreCard:
         # Calculate overall score (weighted)
         overall_score = (
             cons_score * self.WEIGHTS["consumption_behavior"] +
-            fraud_score * self.WEIGHTS["fraud_history"] +
+            anomaly_score * self.WEIGHTS["fraud_history"] +
             ver_score * self.WEIGHTS["verification_quality"] +
             acc_score * self.WEIGHTS["account_standing"]
         )
         
-        # Risk level
+        # Signal level (KARAR DEĞİL, sadece sinyal seviyesi)
         if overall_score >= 80:
-            risk_level = "low"
+            signal_level = "low"
             recommendation = "Güvenilir kullanıcı"
         elif overall_score >= 60:
-            risk_level = "medium"
+            signal_level = "medium"
             recommendation = "İzlemeye devam"
         elif overall_score >= 40:
-            risk_level = "high"
-            recommendation = "Detaylı inceleme önerilir"
+            signal_level = "high"
+            recommendation = "Personel incelemesi önerilir"
         else:
-            risk_level = "critical"
-            recommendation = "Acil müdahale gerekli"
+            signal_level = "critical"
+            recommendation = "Acil personel incelemesi gerekli"
         
-        # Top risk factors (sorted by score)
+        # Top signal factors (sorted by score)
         top_factors = sorted(all_factors, key=lambda f: f.score, reverse=True)[:5]
         
         return {
             "overall_score": int(overall_score),
-            "risk_level": risk_level,
+            "signal_level": signal_level,
             "categories": categories,
-            "top_risk_factors": [f.__dict__ for f in top_factors],
+            "top_signal_factors": [f.__dict__ for f in top_factors],
             "recommendation": recommendation,
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": datetime.utcnow().isoformat(),
+            "note": "Bu rapor KARAR içermez, sadece istatistiksel sinyal üretir."
         }
 
 
@@ -362,4 +373,9 @@ class RiskScoreCard:
 from typing import Tuple
 
 # Global instance
-risk_score_card = RiskScoreCard()
+anomaly_signal_report = AnomalySignalReport()
+
+# Geriye uyumluluk için alias
+risk_score_card = anomaly_signal_report
+RiskScoreCard = AnomalySignalReport
+RiskFactor = SignalFactor

@@ -7,8 +7,13 @@ import "./EcoCivicDeposit.sol";
 
 /**
  * @title WaterBillingFraudManager
- * @notice Su faturası fraud tespiti ve depozito cezası yönetimi
- * @dev AI tespiti ve fiziksel kontrol sonuçlarına göre on-chain ceza uygular
+ * @notice Su faturası anomali tespit ve depozito ceza yönetimi
+ * @dev v1: İstatistiksel sinyal tespiti ve personel/admin kararı sonrası ceza uygular
+ * 
+ * ÖNEMLİ v1 KURALLARI:
+ * - Otomatik ceza YOKTUR. Tüm cezalar admin/personel kararı gerektirir.
+ * - AI/ML terimi kullanılmaz, "Statistical Signal" kullanılır.
+ * - Her kritik işlem blockchain event olarak loglanır.
  */
 contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
     
@@ -17,8 +22,9 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
     // ==============================
     bytes32 public constant FRAUD_DETECTOR_ROLE = keccak256("FRAUD_DETECTOR_ROLE");
     bytes32 public constant INSPECTOR_ROLE = keccak256("INSPECTOR_ROLE");
-    bytes32 public constant AI_VERIFIER_ROLE = keccak256("AI_VERIFIER_ROLE");           // AI fraud detection
+    bytes32 public constant SIGNAL_DETECTOR_ROLE = keccak256("SIGNAL_DETECTOR_ROLE");     // v1: Statistical signal detection
     bytes32 public constant RECYCLING_AUDITOR_ROLE = keccak256("RECYCLING_AUDITOR_ROLE"); // Recycling approval
+    bytes32 public constant ADMIN_DECISION_ROLE = keccak256("ADMIN_DECISION_ROLE");       // v1: Admin penalty decision
     
     // ==============================
     // STATE VARIABLES
@@ -82,10 +88,15 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
     bool public paused;
     
     // ==============================
-    // EVENTS
+    // EVENTS - v1 Updated
     // ==============================
-    event FraudWarningIssued(address indexed user, uint256 currentConsumption, uint256 avgConsumption);
-    event AIFraudDetected(address indexed user, string reason, uint256 penaltyAmount);
+    // Sinyal eventleri (karar DEĞİL)
+    event AnomalySignalDetected(address indexed user, string signalType, uint256 signalScore, string details);
+    event ConsumptionDropWarning(address indexed user, uint256 currentConsumption, uint256 avgConsumption, uint256 dropPercent);
+    
+    // Karar eventleri (SADECE admin/personel sonrası)
+    event AdminDecisionMade(address indexed user, address indexed decisionMaker, string decision, string decisionId);
+    event PenaltyApplied(address indexed user, uint256 amount, string reason, string decisionId);
     event InspectionFraudConfirmed(address indexed user, uint256 penaltyAmount, uint256 underpaymentWithInterest);
     event InspectionScheduled(uint256 indexed inspectionId, address indexed user, uint256 scheduledDate);
     event InspectionCompleted(uint256 indexed inspectionId, address indexed user, bool fraudFound, address inspector);
@@ -94,6 +105,10 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
     event ConsumptionRecorded(address indexed user, uint256 consumption, uint256 monthIndex);
     event Paused(address account);
     event Unpaused(address account);
+    
+    // v1 Legacy events (geriye uyumluluk)
+    event FraudWarningIssued(address indexed user, uint256 currentConsumption, uint256 avgConsumption);
+    event AIFraudDetected(address indexed user, string reason, uint256 penaltyAmount); // DEPRECATED - use AnomalySignalDetected
     
     // ==============================
     // MODIFIERS
@@ -181,14 +196,82 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
         return (requiresConfirmation, avgConsumption);
     }
     
-    // ==============================
-    // FRAUD DETECTION & PENALTY
-    // ==============================
+    /**
+     * @notice v1: Anomali sinyali tespit edildi - CEZA UYGULAMAZ
+     * @param user Kullanıcı adresi
+     * @param signalType Sinyal türü (consumption_drop, index_decreased, vb.)
+     * @param signalScore Sinyal skoru (0-100)
+     * @param details Detaylar
+     * @dev Bu fonksiyon SADECE sinyal kaydeder, ceza vermez!
+     */
+    function recordAnomalySignal(
+        address user,
+        string calldata signalType,
+        uint256 signalScore,
+        string calldata details
+    )
+        external
+        onlyRole(SIGNAL_DETECTOR_ROLE)
+        whenNotPaused
+        validAddress(user)
+    {
+        require(bytes(signalType).length > 0, "Signal type required");
+        require(signalScore <= 100, "Signal score must be 0-100");
+        
+        // Sadece sinyal kaydet, ceza YOK
+        if (userFraudData[user].status == FraudStatus.None) {
+            userFraudData[user].status = FraudStatus.Warning;
+        }
+        userFraudData[user].warningCount++;
+        
+        emit AnomalySignalDetected(user, signalType, signalScore, details);
+    }
     
     /**
-     * @notice AI tarafından fraud tespit edildiğinde depozito cezası kes
+     * @notice v1: Admin kararı sonrası ceza uygula
      * @param user Kullanıcı adresi
-     * @param reason Fraud sebebi
+     * @param penaltyPercent Ceza yüzdesi (0-100)
+     * @param reason Ceza sebebi
+     * @param decisionId Admin karar ID'si (zorunlu!)
+     * @dev SADECE admin kararı sonrası çağrılabilir
+     */
+    function applyPenaltyWithDecision(
+        address user,
+        uint256 penaltyPercent,
+        string calldata reason,
+        string calldata decisionId
+    )
+        external
+        onlyRole(ADMIN_DECISION_ROLE)
+        whenNotPaused
+        validAddress(user)
+        nonReentrant
+    {
+        require(bytes(reason).length > 0, "Reason required");
+        require(bytes(decisionId).length > 0, "Decision ID required - v1 security");
+        require(penaltyPercent > 0 && penaltyPercent <= 100, "Invalid penalty percent");
+        require(!userFraudData[user].isBlacklisted, "User already blacklisted");
+        
+        uint256 userDeposit = deposits[user];
+        require(userDeposit > 0, "User has no deposit");
+        
+        // Ceza hesapla
+        uint256 penaltyAmount = (userDeposit * penaltyPercent * 100) / 10000;
+        
+        // Cezayı kes
+        deposits[user] -= penaltyAmount;
+        
+        // Kullanıcı durumunu güncelle
+        userFraudData[user].totalPenaltiesPaid += penaltyAmount;
+        
+        emit AdminDecisionMade(user, msg.sender, "penalty_applied", decisionId);
+        emit PenaltyApplied(user, penaltyAmount, reason, decisionId);
+        emit DepositPenalized(user, penaltyAmount, reason);
+    }
+    
+    /**
+     * @notice DEPRECATED - v1'de kullanılmıyor
+     * @dev Geriye uyumluluk için saklanıyor, applyPenaltyWithDecision kullanın
      */
     function penalizeForAIFraud(address user, string calldata reason) 
         external 
@@ -197,27 +280,19 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
         validAddress(user)
         nonReentrant
     {
+        // v1: Bu fonksiyon DEVRE DIŞI - sadece sinyal kaydı yap
         require(bytes(reason).length > 0, "Reason required");
-        require(!userFraudData[user].isBlacklisted, "User already blacklisted");
         
-        uint256 userDeposit = depositContract.getUserDeposit(user);
-        require(userDeposit > 0, "User has no deposit");
+        // Sinyal kaydet ama ceza UYGULAMA
+        if (userFraudData[user].status == FraudStatus.None) {
+            userFraudData[user].status = FraudStatus.Warning;
+        }
+        userFraudData[user].warningCount++;
         
-        // %50 ceza hesapla
-        uint256 penaltyAmount = (userDeposit * AI_FRAUD_PENALTY_BPS) / 10000;
+        // Legacy event (geriye uyumluluk)
+        emit AnomalySignalDetected(user, "legacy_ai_detection", 80, reason);
         
-        // Cezayı kes (EcoCivicDeposit'tan çek)
-        depositContract.withdraw(penaltyAmount, address(this));
-        
-        // Kullanıcı durumunu güncelle
-        userFraudData[user].status = FraudStatus.AIDetected;
-        userFraudData[user].totalPenaltiesPaid += penaltyAmount;
-        
-        // Fiziksel kontrol planla
-        _scheduleInspection(user);
-        
-        emit AIFraudDetected(user, reason, penaltyAmount);
-        emit DepositPenalized(user, penaltyAmount, reason);
+        // NOT: Ceza UYGULANMIYOR - admin kararı gerekli
     }
     
     /**
@@ -592,10 +667,11 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
     }
     
     /**
-     * @notice AI fraud tespiti - kısmi kesinti (%50)
+     * @notice v1: Sinyal tespiti sonrası kısmi kesinti (%50) - ADMIN KARARI GEREKLİ
      * @param user Kullanıcı adresi
      * @param amount Kesilecek miktar
-     * @dev Sadece AI_VERIFIER veya FRAUD_DETECTOR çağırabilir
+     * @dev Sadece SIGNAL_DETECTOR veya FRAUD_DETECTOR çağırabilir
+     * @dev v1: Bu fonksiyon sadece sinyal kaydeder, otomatik ceza UYGULAMAZ
      */
     function slashDeposit(address user, uint256 amount) 
         external 
@@ -604,9 +680,10 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
         nonReentrant
     {
         require(
-            hasRole(AI_VERIFIER_ROLE, msg.sender) || 
-            hasRole(FRAUD_DETECTOR_ROLE, msg.sender),
-            "Not authorized: need AI_VERIFIER or FRAUD_DETECTOR role"
+            hasRole(SIGNAL_DETECTOR_ROLE, msg.sender) || 
+            hasRole(FRAUD_DETECTOR_ROLE, msg.sender) ||
+            hasRole(ADMIN_DECISION_ROLE, msg.sender),
+            "Not authorized: need SIGNAL_DETECTOR, FRAUD_DETECTOR or ADMIN_DECISION role"
         );
         
         require(deposits[user] >= amount, "Insufficient deposit");
@@ -620,7 +697,7 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
         userFraudData[user].warningCount++;
         
         emit DepositSlashed(user, amount, true);
-        emit DepositPenalized(user, amount, "AI fraud detection - partial slash");
+        emit DepositPenalized(user, amount, "Signal detection - partial slash");
     }
     
     /**
@@ -750,7 +827,7 @@ contract WaterBillingFraudManager is AccessControl, ReentrancyGuard {
     {
         require(
             hasRole(FRAUD_DETECTOR_ROLE, msg.sender) ||
-            hasRole(AI_VERIFIER_ROLE, msg.sender),
+            hasRole(SIGNAL_DETECTOR_ROLE, msg.sender),
             "Not authorized"
         );
         

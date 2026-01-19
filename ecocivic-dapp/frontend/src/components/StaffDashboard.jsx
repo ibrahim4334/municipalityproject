@@ -384,6 +384,23 @@ export default function StaffDashboard() {
                         <h3 style={styles.modalTitle}>
                             {modalType === 'fraud' ? '🚨 Fraud Sebebi' : '❌ Red Sebebi'}
                         </h3>
+
+                        {/* Blockchain Uyarısı */}
+                        <div style={{
+                            backgroundColor: '#fff3e0',
+                            border: '1px solid #ff9800',
+                            borderRadius: '6px',
+                            padding: '10px',
+                            marginBottom: '15px',
+                            fontSize: '13px'
+                        }}>
+                            <strong>⚠️ Blockchain Kaydı:</strong><br />
+                            Bu karar blockchain'e kaydedilecek ve <strong>sonradan değiştirilemez</strong>.
+                            {modalType === 'fraud' && (
+                                <span> Vatandaşın kalan hakkı düşecektir.</span>
+                            )}
+                        </div>
+
                         <p style={styles.modalDesc}>
                             {modalType === 'fraud'
                                 ? 'Fraud işaretleme sebebini yazın. Bu beyan yönetici onayına gönderilecek.'

@@ -324,11 +324,12 @@ def decide_fraud_appeal(appeal_id):
                         # Tam ceza ve smart contract blacklist
                         penalty_tx_hash = blockchain_service.full_slash_user(appeal.citizen_wallet)
                     else:
-                        # Kısmi ceza
+                        # Kısmi ceza - decision_id ile (v1 gereksinimi)
                         penalty_tx_hash = blockchain_service.penalize_user_deposit(
                             appeal.citizen_wallet,
                             25,  # %25 ceza
-                            f"Fraud appeal rejected - declaration #{appeal.declaration_id}"
+                            f"Fraud appeal rejected - declaration #{appeal.declaration_id}",
+                            decision_id=f"appeal_{appeal_id}_admin_{admin_wallet}"
                         )
                 except Exception as blockchain_err:
                     # Blockchain hatası - loglama yap ama işlemi iptal etme

@@ -71,8 +71,9 @@ contract RecyclingRewards is AccessControl, ReentrancyGuard {
     uint256 public constant MAX_AMOUNT_PER_SUBMISSION = 1000; // Max 1000 kg/adet per submission
 
     // ==============================
-    // EVENTS
+    // EVENTS - v1 Enhanced for Blockchain Visibility
     // ==============================
+    // Submission events
     event SubmissionCreated(
         uint256 indexed submissionId,
         address indexed user,
@@ -81,6 +82,8 @@ contract RecyclingRewards is AccessControl, ReentrancyGuard {
         string subcategory,
         string qrHash
     );
+    
+    // Decision events (staff karar sonrası)
     event SubmissionApproved(
         uint256 indexed submissionId,
         address indexed user,
@@ -93,11 +96,30 @@ contract RecyclingRewards is AccessControl, ReentrancyGuard {
         string reason,
         address rejectedBy
     );
-    event FraudDetected(address indexed user, string reason);
-    event UserBlacklisted(address indexed user);
+    
+    // Token events (blockchain visibility için)
+    event TokenMinted(
+        address indexed user,
+        uint256 amount,
+        uint256 indexed submissionId,
+        string qrHash
+    );
+    event QRCodeClaimed(
+        string indexed qrHash,
+        address indexed user,
+        uint256 rewardAmount,
+        uint256 timestamp
+    );
+    
+    // Fraud events (SADECE staff/admin kararı sonrası)
+    event FraudMarkedByStaff(address indexed user, uint256 indexed submissionId, string reason, address markedBy);
+    event UserBlacklisted(address indexed user, string reason);
     event TokenRateUpdated(WasteType wasteType, uint256 newRate);
     event Paused(address account);
     event Unpaused(address account);
+    
+    // Legacy events (geriye uyumluluk)
+    event FraudDetected(address indexed user, string reason); // DEPRECATED - use FraudMarkedByStaff
 
     // ==============================
     // MODIFIERS
@@ -226,6 +248,9 @@ contract RecyclingRewards is AccessControl, ReentrancyGuard {
         // Token mint
         beltToken.mint(submission.user, reward);
 
+        // v1: Enhanced event logging for blockchain visibility
+        emit TokenMinted(submission.user, reward, submissionId, submission.qrHash);
+        emit QRCodeClaimed(submission.qrHash, submission.user, reward, block.timestamp);
         emit SubmissionApproved(submissionId, submission.user, reward, msg.sender);
     }
 
@@ -257,12 +282,15 @@ contract RecyclingRewards is AccessControl, ReentrancyGuard {
 
         if (isFraud) {
             userFraudCount[submission.user]++;
-            emit FraudDetected(submission.user, reason);
             
-            // 3 fraud = blacklist
+            // v1: Enhanced fraud event with staff info
+            emit FraudMarkedByStaff(submission.user, submissionId, reason, msg.sender);
+            emit FraudDetected(submission.user, reason); // Legacy event
+            
+            // 3 fraud = blacklist (v1: 2 hak sistemi için değiştirilebilir)
             if (userFraudCount[submission.user] >= 3) {
                 isBlacklisted[submission.user] = true;
-                emit UserBlacklisted(submission.user);
+                emit UserBlacklisted(submission.user, "3 fraud warning exceeded");
             }
         }
 
