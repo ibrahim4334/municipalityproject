@@ -7,6 +7,8 @@
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python)](https://python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.0-000000?logo=flask)](https://flask.palletsprojects.com/)
 
+**👤 Hazırlayan:** İbrahim Erol
+
 ---
 
 ## 📋 İçindekiler
@@ -397,8 +399,21 @@ MIT License - Detaylar için [LICENSE](LICENSE) dosyasına bakın.
 
 ---
 
+## 👤 Hazırlayan
+
+| | |
+|---|---|
+| **İsim** | İbrahim Erol |
+| **Proje** | EcoCivic DApp - Belediye Blockchain Prototipi |
+| **Tür** | Akademik Prototip |
+| **Versiyon** | v1.0 |
+
+---
+
 <p align="center">
   <b>🏛️ Şeffaf Belediyecilik için Blockchain Prototipi 🏛️</b>
   <br>
   <sub>v1.0 - Akademik Proje</sub>
+  <br>
+  <sub>Geliştiren: İbrahim Erol</sub>
 </p>
