@@ -182,10 +182,15 @@ class RecyclingDeclarationService:
             
             # Accumulate rewards (PENDING BALANCE)
             user = db.query(User).filter(User.wallet_address == declaration.wallet_address).first()
-            if user:
-                current_balance = user.pending_reward_balance or 0
-                user.pending_reward_balance = current_balance + declaration.total_reward_amount
-                logger.info(f"Added {declaration.total_reward_amount} to pending balance for {declaration.wallet_address}. New total: {user.pending_reward_balance}")
+            if not user:
+                # Kullanıcı yoksa oluştur
+                user = User(wallet_address=declaration.wallet_address, pending_reward_balance=0)
+                db.add(user)
+                db.flush()
+            
+            current_balance = user.pending_reward_balance or 0
+            user.pending_reward_balance = current_balance + declaration.total_reward_amount
+            logger.info(f"💰 Added {declaration.total_reward_amount} BELT to pending balance for {declaration.wallet_address}. New total: {user.pending_reward_balance}")
             
             db.commit()
             
@@ -193,7 +198,7 @@ class RecyclingDeclarationService:
             
             return {
                 "success": True,
-                "message": "Beyan onaylandı ve ödül birikmiş bakiyeye eklendi",
+                "message": f"Beyan onaylandı ve {declaration.total_reward_amount} BELT ödül eklendi",
                 "reward_amount": declaration.total_reward_amount,
                 "wallet_address": declaration.wallet_address,
                 "new_pending_balance": user.pending_reward_balance if user else 0

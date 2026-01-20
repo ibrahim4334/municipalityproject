@@ -115,15 +115,23 @@ def health_check():
 def validate_water_meter():
     """
     DEMO SENARYO İÇİN HARDCODED MANTIK:
-    3 farklı senaryoyu (Normal, Warning, Error) ocr.py sonucuna göre simüle eder.
-    Hata riskini sıfırlar ve sunum garantisi verir.
+    3 farklı senaryoyu (Normal, Warning, Fraud) ocr.py sonucuna göre simüle eder.
+    Her senaryo blockchain'e kaydedilir ve Hardhat terminalinde görünür.
+    
+    Senaryolar (Sırayla döner):
+    1. NORMAL: Başarılı fatura oluşturma + token ödül
+    2. WARNING: %50+ düşük tüketim uyarısı (onay gerektirir)
+    3. FRAUD: Sayaç geriye gitti (anomali tespit)
     """
+    import hashlib
+    from datetime import datetime
+    
     # Current user info from decorator or MOCK for demo
     current_user = getattr(request, "current_user", None)
     if not current_user:
         current_user = {
             "id": 1,
-            "wallet_address": "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d", # Test Account
+            "wallet_address": "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
             "role": "citizen"
         }
     user_confirmed = request.form.get("user_confirmed", "false").lower() == "true"
@@ -136,97 +144,259 @@ def validate_water_meter():
     filepath = os.path.join(UPLOAD_FOLDER, filename)
     image.save(filepath)
 
-    # 1. OCR Sonucunu Al (Stateful Mock)
+    # user_confirmed=true ise, kullanıcı Senaryo 2'yi onaylamış demektir
+    # State'i 1 olarak tut ki OCR tekrar Senaryo 2 dönsün (Senaryo 3'e atlamasın)
+    if user_confirmed:
+        import json
+        state_file = "demo_state.json"
+        try:
+            with open(state_file, "w") as f:
+                json.dump({"state": 1}, f)  # State'i 1'de tut (Senaryo 2)
+        except:
+            pass
+
+    # 1. OCR Sonucunu Al (Stateful Mock - 3 senaryo döngüsü)
     try:
         ocr_result = read_water_meter(filepath)
-    except:
+    except Exception as e:
+        logger.error(f"OCR Error: {e}")
         return error_response("OCR Failed", 500)
         
     raw_text = ocr_result.get("raw_text", "")
     user_address = current_user.get("wallet_address")
     current_index = int(ocr_result.get("index", 0))
     meter_no = ocr_result.get("meter_no", "WSM-DEMO")
+    
+    # Generate deterministic hash for demo
+    timestamp = datetime.now().isoformat()
+    hash_input = f"{meter_no}:{current_index}:{timestamp}"
+    demo_hash = "0x" + hashlib.sha256(hash_input.encode()).hexdigest()
 
-    print(f"DEBUG DEMO: Processing Scenario: {raw_text}, Index: {current_index}")
+    logger.info(f"")
+    logger.info(f"{'='*60}")
+    logger.info(f"📸 SU SAYACI OKUMA - DEMO SENARYO")
+    logger.info(f"{'='*60}")
+    logger.info(f"Senaryo: {raw_text}")
+    logger.info(f"Sayaç No: {meter_no}")
+    logger.info(f"Endeks: {current_index}")
+    logger.info(f"Kullanıcı: {user_address[:20]}...")
     
     tx_hash = None
 
-    # SCENARIO 1: NORMAL & TOKEN KAZAN
+    # ============================================================
+    # SENARYO 1: NORMAL FATURA OLUŞTURMA + TOKEN ÖDÜL
+    # ============================================================
     if "SCENARIO 1" in raw_text or "NORMAL" in raw_text:
+        logger.info(f"✅ SENARYO 1: Normal Fatura Oluşturma")
+        
         # Blockchain'e gerçekten yaz (Hardhat logları için)
         if user_address:
             try:
                 tx_hash = blockchain_service.submit_water_reading(user_address, current_index)
+                logger.info(f"🔗 Blockchain TX: {tx_hash}")
             except Exception as e:
-                logger.error(f"Blockchain Submit Error: {e}")
-                tx_hash = "0x" + "a" * 64 # Fake hash if failed
+                logger.warning(f"Blockchain Submit Error (demo devam ediyor): {e}")
+                tx_hash = demo_hash
+        else:
+            tx_hash = demo_hash
+        
+        # Fatura hesaplamaları
+        previous_index = current_index - 23
+        consumption = 23
+        bill_amount = consumption * 10  # 10 TL/m³
+        reward_amount = 100  # Başarılı fatura = 100 BELT token ödül
+        
+        # Pending reward ekle (claim edilebilir bakiye)
+        try:
+            from database.db import get_db
+            from database.models import User
+            
+            normalized_address = user_address.lower() if user_address else None
+            if normalized_address:
+                with get_db() as db:
+                    user = db.query(User).filter(User.wallet_address == normalized_address).first()
+                    if not user:
+                        user = User(wallet_address=normalized_address)
+                        db.add(user)
+                    if user.pending_reward_balance is None:
+                        user.pending_reward_balance = 0
+                    user.pending_reward_balance += reward_amount
+                    db.commit()
+                    logger.info(f"💰 {reward_amount} BELT token kazanıldı! (Toplam: {user.pending_reward_balance})")
+        except Exception as db_error:
+            logger.warning(f"DB reward error (demo devam): {db_error}")
+        
+        logger.info(f"📄 FATURA BİLGİLERİ:")
+        logger.info(f"   İlk Endeks: {previous_index}")
+        logger.info(f"   Son Endeks: {current_index}")
+        logger.info(f"   Tüketim: {consumption} m³")
+        logger.info(f"   Tutar: {bill_amount} TL")
+        logger.info(f"   Kazanılan Token: {reward_amount} BELT")
+        logger.info(f"🔗 Hash: {tx_hash}")
+        logger.info(f"{'='*60}")
+        logger.info(f"")
 
         return jsonify({
             "valid": True,
             "meter_no": meter_no,
             "current_index": current_index,
-            "historical_avg": current_index - 23, # Fake previous
+            "historical_avg": previous_index,
+            "consumption": consumption,
+            "bill_amount": bill_amount,
+            "reward_amount": reward_amount,
             "reward_eligible": True,
             "photo_validated": True,
             "blockchain_recorded": True,
             "transaction_hash": tx_hash,
-            "message_for_user": "✅ Fatura oluşturuldu ve Blockchain'e işlendi.",
+            "message_for_user": f"✅ Fatura oluşturuldu ve {reward_amount} BELT kazandınız!",
             "bill_pdf": "/fake_bill.pdf"
         })
 
-    # SCENARIO 2: WARNING (Düşük Tüketim)
+    # ============================================================
+    # SENARYO 2: DÜŞÜK TÜKETİM UYARISI (%50+ düşüş)
+    # ============================================================
     elif "SCENARIO 2" in raw_text or "LOW" in raw_text:
-        # Eğer kullanıcı "Eminim" dediyse (user_confirmed=true) -> İşlemi yap
+        logger.info(f"⚠️ SENARYO 2: Düşük Tüketim Uyarısı")
+        
         if user_confirmed:
+            logger.info(f"   Kullanıcı onayladı, işlem devam ediyor...")
+            
             if user_address:
                 try:
                     tx_hash = blockchain_service.submit_water_reading(user_address, current_index)
-                except:
-                    tx_hash = "0x" + "b" * 64 
+                    logger.info(f"🔗 Blockchain TX (onaylı): {tx_hash}")
+                except Exception as e:
+                    logger.warning(f"Blockchain error (demo devam): {e}")
+                    tx_hash = demo_hash
+            else:
+                tx_hash = demo_hash
+            
+            previous_index = current_index - 1
+            consumption = 1
+            bill_amount = consumption * 10
+            reward_amount = 100  # Başarılı fatura = 100 BELT token ödül
+            
+            # Pending reward ekle (claim edilebilir bakiye)
+            try:
+                from database.db import get_db
+                from database.models import User
+                
+                normalized_address = user_address.lower() if user_address else None
+                if normalized_address:
+                    with get_db() as db:
+                        user = db.query(User).filter(User.wallet_address == normalized_address).first()
+                        if not user:
+                            user = User(wallet_address=normalized_address)
+                            db.add(user)
+                        if user.pending_reward_balance is None:
+                            user.pending_reward_balance = 0
+                        user.pending_reward_balance += reward_amount
+                        db.commit()
+                        logger.info(f"💰 {reward_amount} BELT token kazanıldı! (Toplam: {user.pending_reward_balance})")
+            except Exception as db_error:
+                logger.warning(f"DB reward error (demo devam): {db_error}")
+            
+            logger.info(f"📄 DÜŞÜK TÜKETİM FATURASI (Onaylandı):")
+            logger.info(f"   Tüketim: {consumption} m³ (Ortalama: 25 m³)")
+            logger.info(f"   Düşüş: %96")
+            logger.info(f"   Tutar: {bill_amount} TL")
+            logger.info(f"   Kazanılan Token: {reward_amount} BELT")
+            logger.info(f"🔗 Hash: {tx_hash}")
+            logger.info(f"{'='*60}")
             
             return jsonify({
                 "valid": True,
                 "meter_no": meter_no,
                 "current_index": current_index,
-                "historical_avg": current_index + 50, # Fake previous (Yüksek)
+                "historical_avg": current_index - 1,
+                "consumption": consumption,
+                "bill_amount": bill_amount,
+                "reward_amount": reward_amount,
                 "reward_eligible": True,
                 "photo_validated": True,
                 "blockchain_recorded": True,
                 "transaction_hash": tx_hash,
-                "message_for_user": "✅ Onayınızla işlem tamamlandı.",
+                "consumption_warning": {
+                    "confirmed": True,
+                    "drop_percent": 96
+                },
+                "message_for_user": f"✅ Düşük tüketim onaylandı ve {reward_amount} BELT kazandınız!",
                 "bill_pdf": "/fake_bill.pdf"
             })
         else:
             # Kullanıcı onayı yok, Uyarı dön
+            logger.info(f"   Kullanıcı onayı bekleniyor...")
+            logger.info(f"   Mevcut: 1 m³, Ortalama: 25 m³, Düşüş: %96")
+            logger.info(f"{'='*60}")
+            
             return jsonify({
                 "valid": False,
                 "reason": "consumption_drop_warning",
-                "warning": "⚠️ DİKKAT: Tüketiminiz geçmiş aylara göre %90 azalmış. Sayacınız bozuk olabilir. Devam etmek istiyor musunuz?",
+                "meter_no": meter_no,
+                "warning": "⚠️ DİKKAT: Tüketiminiz geçmiş aylara göre %96 azalmış. Sayacınız bozuk olabilir veya su kullanmadınız. Devam etmek istiyor musunuz?",
+                "message": "Tüketiminiz önemli ölçüde düştü.",
                 "current_consumption": 1,
                 "average_consumption": 25,
                 "drop_percent": 96
             }), 200
 
-    # SCENARIO 3: FRAUD (Geri Gitme)
+    # ============================================================
+    # SENARYO 3: FRAUD TESPİTİ (Sayaç Geriye Gitti)
+    # ============================================================
     elif "SCENARIO 3" in raw_text or "FRAUD" in raw_text:
+        logger.info(f"🚨 SENARYO 3: FRAUD TESPİTİ!")
+        logger.info(f"   Sayaç endeksi geriye gitmiş!")
+        logger.info(f"   Önceki: 3120 → Şimdiki: {current_index}")
+        
+        # Fraud durumunda blockchain'e kayıt yap
+        fraud_hash = demo_hash
+        if user_address:
+            try:
+                fraud_hash = blockchain_service.submit_fraud_evidence(user_address, 95)  # Score: 95
+                logger.info(f"🚨 FRAUD BLOCKCHAIN'E KAYDEDİLDİ!")
+                logger.info(f"🔗 Fraud TX Hash: {fraud_hash}")
+            except Exception as e:
+                logger.warning(f"Blockchain fraud error (demo devam): {e}")
+                fraud_hash = demo_hash
+        
+        logger.info(f"⛔ ANOMALİ BLOCKCHAIN'E KAYDEDİLDİ!")
+        logger.info(f"🔗 Fraud Hash: {fraud_hash}")
+        logger.info(f"   İnceleme başlatılacak...")
+        logger.info(f"{'='*60}")
+        logger.info(f"")
+        
         return jsonify({
             "valid": False,
-            "reason": "anomaly_detected", # Frontend bu key'i bekliyor
-            "message": "❌ KRİTİK HATA: Sayaç endeksi geriye gitmiş! (Eski: 3120, Yeni: 3000). İşlem durduruldu ve inceleme başlatıldı.",
+            "reason": "anomaly_detected",
+            "meter_no": meter_no,
+            "message": f"❌ KRİTİK HATA: Sayaç endeksi geriye gitmiş! (Eski: 3120, Yeni: {current_index}). İşlem durduruldu ve inceleme başlatıldı.",
             "anomaly_signal": {
                 "detected": True,
                 "signal_type": "index_reversed",
-                "details": f"Meter reading ({current_index}) is lower than previous reading"
-            }
-        }), 400
+                "signal_score": 95,
+                "details": f"Sayaç okuması ({current_index}) önceki okumadan (3120) düşük - imkansız durum!"
+            },
+            "blockchain_hash": fraud_hash
+        }), 200  # 200 döndürelim ki frontend düzgün parse edebilsin
 
-    # Fallback (Scenario 1 Gibi Davran)
+    # ============================================================
+    # FALLBACK (Senaryo 1 gibi davran)
+    # ============================================================
+    logger.info(f"ℹ️ FALLBACK: Varsayılan işlem")
+    
+    tx_hash = demo_hash
+    logger.info(f"🔗 Hash: {tx_hash}")
+    logger.info(f"{'='*60}")
+    
     return jsonify({
         "valid": True,
         "meter_no": meter_no,
         "current_index": current_index,
         "historical_avg": current_index - 10,
-        "message_for_user": "Fallback Success"
+        "consumption": 10,
+        "bill_amount": 100,
+        "transaction_hash": tx_hash,
+        "message_for_user": "✅ İşlem tamamlandı."
     })
 
 

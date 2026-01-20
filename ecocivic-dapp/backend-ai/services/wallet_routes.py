@@ -68,28 +68,66 @@ def claim_rewards():
             if amount_to_claim <= 0:
                 return error_response("Transfer edilecek birikmiş ödül yok", 400)
             
-            # Blockchain transferi başlat
+            # Doğrudan BELT Token mint et (daha güvenilir)
             try:
-                tx_hash = blockchain_service.reward_recycling(
-                    normalized_wallet,
-                    "mixed", # Type can be generic for bulk claim
-                    amount_to_claim,
-                    f"bulk_claim_{amount_to_claim}"
+                from web3 import Web3
+                from config import BLOCKCHAIN_RPC_URL, BELT_TOKEN_ADDRESS, BACKEND_WALLET_PRIVATE_KEY
+                
+                w3 = Web3(Web3.HTTPProvider(BLOCKCHAIN_RPC_URL))
+                
+                # BELT Token mint ABI
+                mint_abi = [{
+                    "inputs": [
+                        {"internalType": "address", "name": "to", "type": "address"},
+                        {"internalType": "uint256", "name": "amount", "type": "uint256"}
+                    ],
+                    "name": "mint",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }]
+                
+                belt_contract = w3.eth.contract(
+                    address=w3.to_checksum_address(BELT_TOKEN_ADDRESS), 
+                    abi=mint_abi
                 )
                 
-                if tx_hash:
-                    # Başarılı transfer sonrası bakiyeyi sıfırla
-                    user.pending_reward_balance = 0
-                    db.commit()
-                    
-                    return jsonify({
-                        "success": True,
-                        "message": f"{amount_to_claim} BELT cüzdanınıza transfer edildi.",
-                        "tx_hash": tx_hash,
-                        "claimed_amount": amount_to_claim
-                    }), 200
-                else:
-                     return error_response("Blockchain transferi başarısız oldu (hash yok)", 500)
+                # Backend wallet
+                account = w3.eth.account.from_key(BACKEND_WALLET_PRIVATE_KEY)
+                user_checksum = w3.to_checksum_address(normalized_wallet)
+                
+                # BELT token decimals = 18, amount * 10^18
+                mint_amount = amount_to_claim * (10 ** 18)
+                
+                tx = belt_contract.functions.mint(
+                    user_checksum,
+                    mint_amount
+                ).build_transaction({
+                    'from': account.address,
+                    'nonce': w3.eth.get_transaction_count(account.address),
+                    'gas': 200000,
+                    'gasPrice': w3.eth.gas_price
+                })
+                
+                signed_tx = w3.eth.account.sign_transaction(tx, BACKEND_WALLET_PRIVATE_KEY)
+                # Web3.py 6.x: raw_transaction, Web3.py 5.x: rawTransaction
+                raw_tx = getattr(signed_tx, 'raw_transaction', None) or getattr(signed_tx, 'rawTransaction', None)
+                tx_hash = w3.eth.send_raw_transaction(raw_tx)
+                tx_hash_hex = w3.to_hex(tx_hash)
+                
+                logger.info(f"✅ BELT Token minted: {amount_to_claim} to {normalized_wallet}")
+                logger.info(f"🔗 TX Hash: {tx_hash_hex}")
+                
+                # Başarılı transfer sonrası bakiyeyi sıfırla
+                user.pending_reward_balance = 0
+                db.commit()
+                
+                return jsonify({
+                    "success": True,
+                    "message": f"{amount_to_claim} BELT cüzdanınıza transfer edildi.",
+                    "tx_hash": tx_hash_hex,
+                    "claimed_amount": amount_to_claim
+                }), 200
 
             except Exception as bc_error:
                 logger.error(f"Blockchain claim error: {bc_error}")

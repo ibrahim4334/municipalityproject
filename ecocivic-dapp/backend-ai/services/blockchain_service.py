@@ -69,7 +69,7 @@ class BlockchainService:
                     {"internalType": "address", "name": "user", "type": "address"},
                     {"internalType": "uint256", "name": "newReading", "type": "uint256"}
                 ],
-                "name": "submitReading",
+                "name": "submitReadingLegacy",
                 "outputs": [],
                 "stateMutability": "nonpayable",
                 "type": "function"
@@ -85,6 +85,9 @@ class BlockchainService:
             if not self.private_key:
                 raise ValueError("Wallet not configured")
 
+            # User address'i checksum formatına çevir
+            user_address = self.w3.to_checksum_address(user_address)
+            
             contract = self.w3.eth.contract(address=self.recycling_address, abi=self.recycling_abi)
             
             # Map material string to enum int (WasteType enum in contract)
@@ -133,9 +136,12 @@ class BlockchainService:
             if not self.private_key or not self.water_billing_address:
                 raise ValueError("WaterBilling configuration missing")
 
+            # User address'i checksum formatına çevir
+            user_address = self.w3.to_checksum_address(user_address)
+            
             contract = self.w3.eth.contract(address=self.water_billing_address, abi=self.water_billing_abi)
             
-            tx = contract.functions.submitReading(
+            tx = contract.functions.submitReadingLegacy(
                 user_address,
                 reading_index
             ).build_transaction({
@@ -335,6 +341,9 @@ class BlockchainService:
                     "type": "function"
                 }
             ]
+            
+            # User address'i checksum formatına çevir
+            user_address = self.w3.to_checksum_address(user_address)
             
             contract = self.w3.eth.contract(
                 address=self.water_billing_address, 

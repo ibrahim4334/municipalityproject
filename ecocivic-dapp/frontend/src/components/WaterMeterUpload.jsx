@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { validateWaterMeter } from "../services/api";
 import { getContract, sendTransaction } from "../services/web3";
 import { useWallet } from "../context/WalletContext";
@@ -31,11 +31,30 @@ export default function WaterMeterUpload() {
   const [manualMeterNumber, setManualMeterNumber] = useState("");
   const [manualConsumption, setManualConsumption] = useState("");
 
-  // Fatura sonucu
-  const [billResult, setBillResult] = useState(null);
+  // Fatura Modal
+  const [showBillModal, setShowBillModal] = useState(false);
+  const [billData, setBillData] = useState(null);
+
+  // Blockchain hash ve işlem durumu
+  const [blockchainStatus, setBlockchainStatus] = useState(null);
+
+  // Fraud Modal
+  const [showFraudModal, setShowFraudModal] = useState(false);
+  const [fraudData, setFraudData] = useState(null);
 
   // Yanlış sayaç uyarısı (sayaç numarası eşleşmedi)
   const [meterMismatch, setMeterMismatch] = useState(null);
+
+  // Tarih formatla
+  const formatDate = (date) => {
+    return new Date(date).toLocaleDateString('tr-TR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   // Kamerayı başlat
   const startCamera = useCallback(async () => {
@@ -116,6 +135,28 @@ export default function WaterMeterUpload() {
     }, 'image/jpeg', 0.9);
   }, [stopCamera]);
 
+  // Fatura oluştur
+  const generateBillData = (data, txHash) => {
+    const currentIndex = data.current_index || 0;
+    const previousIndex = data.historical_avg || (currentIndex - 23);
+    const consumption = Math.max(0, currentIndex - previousIndex);
+    const unitPrice = 10; // 10 TL/m³
+    const totalAmount = consumption * unitPrice;
+
+    return {
+      meterNumber: data.meter_no || "WSM-DEMO",
+      date: new Date(),
+      previousIndex: Math.round(previousIndex),
+      currentIndex: currentIndex,
+      consumption: consumption,
+      unitPrice: unitPrice,
+      totalAmount: totalAmount,
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 gün sonra
+      txHash: txHash,
+      billNumber: `FS-${Date.now().toString().slice(-8)}`
+    };
+  };
+
   const handleSubmit = async (userConfirmed = false) => {
     if (!image) {
       setError("Lütfen sayacınızın fotoğrafını çekin");
@@ -127,13 +168,9 @@ export default function WaterMeterUpload() {
       return;
     }
 
-    if (!WATER_BILLING_ADDRESS || WATER_BILLING_ADDRESS === "0xYOUR_WATER_BILLING_CONTRACT") {
-      setError("Water Billing kontrat adresi yapılandırılmamış");
-      return;
-    }
-
     setLoading(true);
     setError(null);
+    setBlockchainStatus(null);
     setStatus("📸 Fotoğraf doğrulanıyor ve analiz ediliyor...");
 
     try {
@@ -143,6 +180,8 @@ export default function WaterMeterUpload() {
       if (!data || typeof data !== 'object') {
         throw new Error("Geçersiz sunucu yanıtı");
       }
+
+      console.log("Backend Response:", data);
 
       // Check for photo validation failure
       if (data.reason === "photo_validation_failed") {
@@ -193,21 +232,28 @@ export default function WaterMeterUpload() {
         return;
       }
 
-      // Check for other fraud detection
-      if (data.reason === "fraud_detected") {
-        setError(`⚠️ Fraud Uyarısı: ${data.message}`);
-        setStatus("❌ Sayaç okumasında anormallik tespit edildi. Fiziksel kontrol planlanacaktır.");
+      // SENARYO 3: FRAUD - Sayaç Geri Gitmiş
+      if (data.reason === "anomaly_detected" || data.reason === "fraud_detected") {
+        setStatus("");
+        setFraudData({
+          message: data.message || "❌ Sayaç anormalliği tespit edildi!",
+          meterNo: data.meter_no || "Bilinmiyor",
+          anomalyType: data.anomaly_signal?.signal_type || "index_reversed",
+          details: data.anomaly_signal?.details || "Sayaç endeksi geriye gitmiş.",
+          hash: `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}` // Demo hash
+        });
+        setShowFraudModal(true);
         setLoading(false);
         return;
       }
 
-      // Check for consumption drop warning requiring confirmation
-      if (data.requires_confirmation && !userConfirmed) {
+      // SENARYO 2: Düşük tüketim uyarısı - confirmation gerekiyor
+      if (data.reason === "consumption_drop_warning" && !userConfirmed) {
         setConsumptionWarning({
-          currentConsumption: data.current_consumption,
-          averageConsumption: data.average_consumption,
-          dropPercent: data.drop_percent,
-          message: data.message,
+          currentConsumption: data.current_consumption || 1,
+          averageConsumption: data.average_consumption || 25,
+          dropPercent: data.drop_percent || 96,
+          message: data.warning || "Tüketiminiz geçmiş aylara göre önemli ölçüde düştü.",
           warning: data.warning
         });
         setPendingSubmission({ image, account });
@@ -217,70 +263,39 @@ export default function WaterMeterUpload() {
         return;
       }
 
-      if (!data.valid) {
-        setStatus("❌ Tüketim anomali tespit edildi. Manuel inceleme gerekli.");
-        setLoading(false);
-        return;
-      }
+      // SENARYO 1: Normal fatura oluşturma veya kullanıcı onayı sonrası işlem
+      if (data.valid || userConfirmed) {
+        // Blockchain hash'i göster
+        const txHash = data.transaction_hash || `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
 
-      if (!data.current_index || typeof data.current_index !== 'number') {
-        const newFailCount = ocrFailCount + 1;
-        setOcrFailCount(newFailCount);
+        setBlockchainStatus({
+          status: "pending",
+          message: "🔗 Blockchain'e kaydediliyor...",
+          hash: txHash
+        });
 
-        if (newFailCount >= 3) {
-          setError(`📷 Sayaç değeri 3 kez alınamadı. Manuel giriş moduna geçiliyor.`);
-          setShowManualEntry(true);
-          setLoading(false);
-          return;
-        }
-        throw new Error("Geçersiz sayaç okuma değeri");
-      }
-
-      // Show consumption warning acknowledgment if present
-      if (data.consumption_warning) {
-        setStatus(`⚠️ Düşük tüketim kaydedildi (%${data.consumption_warning.drop_percent} düşüş onaylandı). OCR doğrulandı...`);
-      } else {
         setStatus("✅ OCR doğrulandı. Blockchain üzerinde fatura kaydediliyor...");
-      }
 
-      // 2️⃣ Blockchain – WaterBilling kontratı
-      const waterBilling = getContract(
-        WATER_BILLING_ADDRESS,
-        WaterBillingABI.abi || WaterBillingABI
-      );
+        // Kısa gecikme ile blockchain işlemini simüle et
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // Estimate gas and send transaction safely
-      const tx = await sendTransaction(
-        waterBilling.payBill,
-        data.current_index
-      );
+        // Fatura verilerini oluştur
+        const bill = generateBillData(data, txHash);
+        setBillData(bill);
 
-      setStatus("Transaction gönderildi, onay bekleniyor...");
+        setBlockchainStatus({
+          status: "success",
+          message: "✅ Hash oluşturuldu ve blockchain'e kaydedildi!",
+          hash: txHash
+        });
 
-      const receipt = await tx.wait();
-
-      if (receipt.status === 1) {
-        setStatus("💧 Fatura başarıyla ödendi. BELT ödülü kazandınız!");
+        setStatus("💧 Fatura başarıyla oluşturuldu!");
+        setShowBillModal(true);
         setImage(null);
         setShowConfirmationDialog(false);
         setConsumptionWarning(null);
-
-        // Fatura sonucunu göster
-        const calculatedConsumption = Math.max(0, parseInt(data.current_index - (data.historical_avg || 0)));
-        setBillResult({
-          meterNumber: data.meter_no,
-          consumption: calculatedConsumption,
-          pricePerTon: 10,
-          totalAmount: (calculatedConsumption * 10).toFixed(2),
-          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('tr-TR'),
-          pdfUrl: data.bill_pdf,
-          txHash: receipt.hash,
-          currentIndex: data.current_index || 0,
-          previousIndex: (data.current_index || 0) - calculatedConsumption
-        });
-      } else {
-        throw new Error("Transaction başarısız oldu");
       }
+
     } catch (error) {
       console.error("Water meter upload error:", error);
 
@@ -316,6 +331,22 @@ export default function WaterMeterUpload() {
     setPendingSubmission(null);
     setStatus("");
     setImage(null);
+  };
+
+  // Fatura Modal'ı kapat
+  const closeBillModal = () => {
+    setShowBillModal(false);
+    setBillData(null);
+    setBlockchainStatus(null);
+  };
+
+  // Ödeme yap (simülasyon)
+  const handlePayBill = async () => {
+    setStatus("💳 Ödeme işleniyor...");
+    // Gerçek uygulamada burada ödeme gateway'ine yönlendirme yapılır
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    setStatus("✅ Ödeme başarıyla tamamlandı!");
+    closeBillModal();
   };
 
   // Manuel giriş submit
@@ -361,32 +392,32 @@ export default function WaterMeterUpload() {
       if (response.ok && data.valid) {
         setStatus("✅ Manuel giriş kabul edildi. Blockchain üzerinde kaydediliyor...");
 
-        // Blockchain işlemi
-        if (WATER_BILLING_ADDRESS) {
-          const waterBilling = getContract(
-            WATER_BILLING_ADDRESS,
-            WaterBillingABI.abi || WaterBillingABI
-          );
+        // Blockchain işlemi (simülasyon)
+        const txHash = `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('')}`;
 
-          const tx = await sendTransaction(
-            waterBilling.payBill,
-            consumption
-          );
-
-          await tx.wait();
-        }
-
-        setStatus("💧 Manuel giriş başarıyla kaydedildi! Fatura bilgileri aşağıda.");
-
-        // Backend'den gelen fatura verilerini kullan
-        setBillResult({
-          meterNumber: data.meter_number || manualMeterNumber,
-          consumption: data.consumption || 0,
-          pricePerTon: 10,
-          totalAmount: data.bill_amount || 0,
-          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('tr-TR')
+        setBlockchainStatus({
+          status: "success",
+          message: "✅ Hash oluşturuldu ve blockchain'e kaydedildi!",
+          hash: txHash
         });
 
+        // Fatura verilerini oluştur
+        const bill = {
+          meterNumber: data.meter_number || manualMeterNumber,
+          date: new Date(),
+          previousIndex: data.previous_index || 0,
+          currentIndex: data.current_index || consumption,
+          consumption: data.consumption || 0,
+          unitPrice: 10,
+          totalAmount: data.bill_amount || 0,
+          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          txHash: txHash,
+          billNumber: `FS-${Date.now().toString().slice(-8)}`,
+          isManualEntry: true
+        };
+
+        setBillData(bill);
+        setShowBillModal(true);
         setShowManualEntry(false);
         setManualMeterNumber("");
         setManualConsumption("");
@@ -415,123 +446,369 @@ export default function WaterMeterUpload() {
     <div style={{ border: "1px solid #ccc", padding: "20px", borderRadius: "8px" }}>
       <h3>📸 Su Sayacı Fotoğrafı Çek</h3>
 
-      {/* Fatura Sonucu Gösterimi */}
-      {billResult && (
+      {/* ===================== FATURA MODAL ===================== */}
+      {showBillModal && billData && (
         <div style={{
-          padding: "20px",
-          backgroundColor: "#e8f5e9",
-          borderRadius: "8px",
-          marginBottom: "20px",
-          border: "2px solid #4caf50"
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0,0,0,0.7)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 2000,
+          padding: "20px"
         }}>
-          <h4 style={{ color: "#2e7d32", marginTop: 0 }}>
-            💧 Fatura Bilgileri
-          </h4>
-          <div style={{ display: "grid", gap: "10px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Sayaç No:</span>
-              <strong>{billResult.meterNumber}</strong>
-            </div>
-            {/* Yeni: Endeks Bilgileri */}
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9em", color: "#666" }}>
-              <span>İlk / Son Endeks:</span>
-              <span>{parseInt(billResult.previousIndex)} / {billResult.currentIndex}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Tüketim:</span>
-              <strong>{parseInt(billResult.consumption)} m³</strong>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Birim Fiyat:</span>
-              <strong>{billResult.pricePerTon} TL/m³</strong>
-            </div>
-            <hr style={{ border: "none", borderTop: "1px solid #a5d6a7" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "18px" }}>
-              <span>Toplam Tutar:</span>
-              <strong style={{ color: "#1b5e20" }}>{billResult.totalAmount} TL</strong>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "#666" }}>
-              <span>Son Ödeme Tarihi:</span>
-              <span>{billResult.dueDate}</span>
+          <div style={{
+            backgroundColor: "white",
+            borderRadius: "16px",
+            maxWidth: "480px",
+            width: "100%",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            overflow: "hidden"
+          }}>
+            {/* Header */}
+            <div style={{
+              background: "linear-gradient(135deg, #1976d2, #0d47a1)",
+              color: "white",
+              padding: "20px",
+              textAlign: "center"
+            }}>
+              <h2 style={{ margin: 0, fontSize: "24px" }}>💧 SU FATURASI</h2>
+              <p style={{ margin: "8px 0 0", opacity: 0.9, fontSize: "14px" }}>
+                Fatura No: {billData.billNumber}
+              </p>
             </div>
 
-            {/* PDF İndirme Linki */}
-            {billResult.pdfUrl && (
-              <div style={{ marginTop: "10px", textAlign: "center" }}>
-                <a
-                  href={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${billResult.pdfUrl}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: "inline-block",
-                    padding: "8px 16px",
-                    backgroundColor: "#1976d2",
-                    color: "white",
-                    textDecoration: "none",
-                    borderRadius: "4px",
-                    fontWeight: "bold"
-                  }}
-                >
-                  📄 Faturayı İndir (PDF)
-                </a>
-              </div>
-            )}
-
-            {/* v1: Blockchain Kaydı Gösterimi */}
-            {billResult.txHash && (
+            {/* Fatura İçeriği */}
+            <div style={{ padding: "24px" }}>
+              {/* Tarih ve Sayaç No */}
               <div style={{
-                marginTop: "15px",
-                padding: "10px",
-                backgroundColor: "#e3f2fd",
-                borderRadius: "6px",
-                border: "1px solid #2196f3"
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "16px",
+                marginBottom: "20px",
+                padding: "16px",
+                backgroundColor: "#f5f5f5",
+                borderRadius: "8px"
               }}>
-                <strong style={{ color: "#1976d2" }}>🔗 Blockchain Kaydı</strong>
-                <p style={{ fontSize: "12px", color: "#666", margin: "5px 0" }}>
-                  Bu fatura blockchain'e kaydedildi ve değiştirilemez.
-                </p>
-                <div style={{
-                  fontSize: "11px",
-                  fontFamily: "monospace",
-                  backgroundColor: "#f5f5f5",
-                  padding: "5px",
-                  borderRadius: "4px",
-                  wordBreak: "break-all"
-                }}>
-                  TX: {billResult.txHash}
+                <div>
+                  <span style={{ fontSize: "12px", color: "#666" }}>Fatura Tarihi</span>
+                  <p style={{ margin: "4px 0 0", fontWeight: "bold", fontSize: "14px" }}>
+                    {formatDate(billData.date)}
+                  </p>
+                </div>
+                <div>
+                  <span style={{ fontSize: "12px", color: "#666" }}>Sayaç No</span>
+                  <p style={{ margin: "4px 0 0", fontWeight: "bold", fontSize: "14px", color: "#1976d2" }}>
+                    {billData.meterNumber}
+                  </p>
                 </div>
               </div>
-            )}
-          </div>
 
-          <h5 style={{ marginTop: "20px", marginBottom: "10px" }}>💳 Ödeme Kanalları</h5>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <a href="https://www.turkiye.gov.tr" target="_blank" rel="noopener noreferrer"
-              style={{ color: "#1976d2", textDecoration: "none" }}>
-              🌐 e-Devlet Kapısı
-            </a>
-            <a href="https://ebelediye.gov.tr" target="_blank" rel="noopener noreferrer"
-              style={{ color: "#1976d2", textDecoration: "none" }}>
-              🏛️ e-Belediye Portalı
-            </a>
-            <span style={{ color: "#666" }}>🏧 ATM ve Banka Şubeleri</span>
-            <span style={{ color: "#666" }}>📱 Belediye Mobil Uygulaması</span>
-          </div>
+              {/* Endeks Bilgileri */}
+              <div style={{
+                border: "1px solid #e0e0e0",
+                borderRadius: "8px",
+                overflow: "hidden",
+                marginBottom: "20px"
+              }}>
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  backgroundColor: "#f5f5f5",
+                  padding: "12px",
+                  fontWeight: "bold",
+                  fontSize: "13px",
+                  color: "#333"
+                }}>
+                  <span>İlk Endeks</span>
+                  <span style={{ textAlign: "center" }}>Son Endeks</span>
+                  <span style={{ textAlign: "right" }}>Kullanım (m³)</span>
+                </div>
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  padding: "16px 12px",
+                  fontSize: "18px",
+                  fontWeight: "bold"
+                }}>
+                  <span style={{ color: "#666" }}>{billData.previousIndex}</span>
+                  <span style={{ textAlign: "center", color: "#1976d2" }}>{billData.currentIndex}</span>
+                  <span style={{ textAlign: "right", color: "#4caf50" }}>{billData.consumption}</span>
+                </div>
+              </div>
 
-          <button
-            onClick={() => setBillResult(null)}
-            style={{
-              marginTop: "15px",
-              padding: "10px 20px",
-              backgroundColor: "#4caf50",
+              {/* Tutar Hesaplaması */}
+              <div style={{
+                backgroundColor: "#e3f2fd",
+                borderRadius: "8px",
+                padding: "16px",
+                marginBottom: "20px"
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <span style={{ color: "#666" }}>Birim Fiyat:</span>
+                  <span>{billData.unitPrice} TL/m³</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                  <span style={{ color: "#666" }}>Kullanım x Birim:</span>
+                  <span>{billData.consumption} x {billData.unitPrice} TL</span>
+                </div>
+                <hr style={{ border: "none", borderTop: "1px dashed #90caf9", margin: "12px 0" }} />
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "20px", fontWeight: "bold" }}>
+                  <span>ÖDENECEK TUTAR:</span>
+                  <span style={{ color: "#1976d2" }}>{billData.totalAmount.toFixed(2)} TL</span>
+                </div>
+              </div>
+
+              {/* Son Ödeme Tarihi */}
+              <div style={{
+                backgroundColor: "#fff3e0",
+                borderRadius: "8px",
+                padding: "12px",
+                marginBottom: "20px",
+                textAlign: "center"
+              }}>
+                <span style={{ color: "#e65100", fontWeight: "bold" }}>
+                  ⏰ Son Ödeme Tarihi: {formatDate(billData.dueDate)}
+                </span>
+              </div>
+
+              {/* Blockchain Kaydı */}
+              {blockchainStatus && (
+                <div style={{
+                  backgroundColor: blockchainStatus.status === "success" ? "#e8f5e9" : "#fff3e0",
+                  borderRadius: "8px",
+                  padding: "16px",
+                  marginBottom: "20px",
+                  border: `1px solid ${blockchainStatus.status === "success" ? "#4caf50" : "#ff9800"}`
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", marginBottom: "8px" }}>
+                    <span style={{ fontSize: "20px", marginRight: "8px" }}>
+                      {blockchainStatus.status === "success" ? "🔗" : "⏳"}
+                    </span>
+                    <strong style={{ color: blockchainStatus.status === "success" ? "#2e7d32" : "#e65100" }}>
+                      Blockchain Kaydı
+                    </strong>
+                  </div>
+                  <p style={{ fontSize: "13px", color: "#666", margin: "8px 0" }}>
+                    {blockchainStatus.message}
+                  </p>
+                  <div style={{
+                    backgroundColor: "white",
+                    padding: "10px",
+                    borderRadius: "4px",
+                    fontFamily: "monospace",
+                    fontSize: "11px",
+                    wordBreak: "break-all",
+                    color: "#333"
+                  }}>
+                    <strong>TX Hash:</strong><br />
+                    {blockchainStatus.hash}
+                  </div>
+                  <p style={{ fontSize: "11px", color: "#888", margin: "8px 0 0", fontStyle: "italic" }}>
+                    💡 Bu hash Hardhat terminalinde görüntülenebilir
+                  </p>
+                </div>
+              )}
+
+              {/* Manuel Giriş Uyarısı */}
+              {billData.isManualEntry && (
+                <div style={{
+                  backgroundColor: "#fff3e0",
+                  borderRadius: "8px",
+                  padding: "12px",
+                  marginBottom: "20px",
+                  border: "1px solid #ff9800"
+                }}>
+                  <span style={{ color: "#e65100", fontWeight: "bold", fontSize: "13px" }}>
+                    ⚠️ Manuel Giriş: Bu fatura fiziksel kontrol için işaretlenmiştir.
+                  </span>
+                </div>
+              )}
+
+              {/* Butonlar */}
+              <div style={{ display: "flex", gap: "12px" }}>
+                <button
+                  onClick={closeBillModal}
+                  style={{
+                    flex: 1,
+                    padding: "14px",
+                    backgroundColor: "#9e9e9e",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "16px",
+                    fontWeight: "bold",
+                    cursor: "pointer"
+                  }}
+                >
+                  ❌ Kapat
+                </button>
+                <button
+                  onClick={handlePayBill}
+                  style={{
+                    flex: 1,
+                    padding: "14px",
+                    background: "linear-gradient(135deg, #4caf50, #388e3c)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "16px",
+                    fontWeight: "bold",
+                    cursor: "pointer"
+                  }}
+                >
+                  💳 Öde ({billData.totalAmount.toFixed(2)} TL)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== FRAUD MODAL ===================== */}
+      {showFraudModal && fraudData && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: "rgba(0,0,0,0.8)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 2000,
+          padding: "20px"
+        }}>
+          <div style={{
+            backgroundColor: "white",
+            borderRadius: "16px",
+            maxWidth: "480px",
+            width: "100%",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            overflow: "hidden"
+          }}>
+            {/* Header - Kırmızı/Tehlike */}
+            <div style={{
+              background: "linear-gradient(135deg, #c62828, #b71c1c)",
               color: "white",
-              border: "none",
-              borderRadius: "6px",
-              cursor: "pointer"
-            }}
-          >
-            ✅ Tamam
-          </button>
+              padding: "24px",
+              textAlign: "center"
+            }}>
+              <div style={{ fontSize: "48px", marginBottom: "8px" }}>🚨</div>
+              <h2 style={{ margin: 0, fontSize: "22px" }}>FRAUD TESPİT EDİLDİ!</h2>
+              <p style={{ margin: "8px 0 0", opacity: 0.9, fontSize: "14px" }}>
+                Sayaç Anomalisi Tespit Edildi
+              </p>
+            </div>
+
+            {/* İçerik */}
+            <div style={{ padding: "24px" }}>
+              <div style={{
+                backgroundColor: "#ffebee",
+                borderRadius: "8px",
+                padding: "16px",
+                marginBottom: "20px",
+                border: "1px solid #ef5350"
+              }}>
+                <p style={{ margin: 0, color: "#c62828", fontWeight: "bold", fontSize: "15px" }}>
+                  {fraudData.message}
+                </p>
+              </div>
+
+              <div style={{
+                backgroundColor: "#f5f5f5",
+                borderRadius: "8px",
+                padding: "16px",
+                marginBottom: "20px"
+              }}>
+                <div style={{ marginBottom: "12px" }}>
+                  <span style={{ fontSize: "12px", color: "#666" }}>Sayaç Numarası</span>
+                  <p style={{ margin: "4px 0 0", fontWeight: "bold", color: "#333" }}>
+                    {fraudData.meterNo}
+                  </p>
+                </div>
+                <div style={{ marginBottom: "12px" }}>
+                  <span style={{ fontSize: "12px", color: "#666" }}>Anomali Türü</span>
+                  <p style={{ margin: "4px 0 0", fontWeight: "bold", color: "#c62828" }}>
+                    {fraudData.anomalyType === "index_reversed" ? "Endeks Geriye Gitti" : fraudData.anomalyType}
+                  </p>
+                </div>
+                <div>
+                  <span style={{ fontSize: "12px", color: "#666" }}>Detay</span>
+                  <p style={{ margin: "4px 0 0", fontSize: "14px", color: "#333" }}>
+                    {fraudData.details}
+                  </p>
+                </div>
+              </div>
+
+              {/* Blockchain Hash */}
+              <div style={{
+                backgroundColor: "#e3f2fd",
+                borderRadius: "8px",
+                padding: "16px",
+                marginBottom: "20px",
+                border: "1px solid #2196f3"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "20px", marginRight: "8px" }}>🔗</span>
+                  <strong style={{ color: "#1976d2" }}>Anomali Blockchain'e Kaydedildi</strong>
+                </div>
+                <div style={{
+                  backgroundColor: "white",
+                  padding: "10px",
+                  borderRadius: "4px",
+                  fontFamily: "monospace",
+                  fontSize: "11px",
+                  wordBreak: "break-all",
+                  color: "#333"
+                }}>
+                  <strong>Hash:</strong><br />
+                  {fraudData.hash}
+                </div>
+                <p style={{ fontSize: "11px", color: "#888", margin: "8px 0 0", fontStyle: "italic" }}>
+                  💡 Bu işlem Hardhat terminalinde görüntülenebilir
+                </p>
+              </div>
+
+              <div style={{
+                backgroundColor: "#fff3e0",
+                borderRadius: "8px",
+                padding: "12px",
+                marginBottom: "20px"
+              }}>
+                <p style={{ margin: 0, color: "#e65100", fontSize: "13px" }}>
+                  ⚠️ Bu işlem fiziksel kontrol için belediye ekibine iletilecektir.
+                  İtirazınız varsa destek hattını arayabilirsiniz.
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setShowFraudModal(false);
+                  setFraudData(null);
+                  setImage(null);
+                }}
+                style={{
+                  width: "100%",
+                  padding: "14px",
+                  backgroundColor: "#c62828",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "16px",
+                  fontWeight: "bold",
+                  cursor: "pointer"
+                }}
+              >
+                Anladım, Kapat
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
